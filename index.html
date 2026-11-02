@@ -9,7 +9,7 @@
 <meta property="og:type" content="website">
 <meta property="og:title" content="喵喵液压机 Kitty Press">
 <meta property="og:description" content="按住就压，看看它会怎么碎。">
-<meta property="og:url" content="https://grrreymane.github.io/KittyPress/">
+<meta property="og:url" content="https://www.aiwanna.games/games/game-fa168b428022f28c">
 <meta property="og:image" content="https://grrreymane.github.io/KittyPress/cover.png">
 <meta property="og:image:width" content="1920">
 <meta property="og:image:height" content="1080">
@@ -2206,8 +2206,8 @@ function render() {
 // ============================================================ share card
 // A tall pixel postcard (180x320, saved at 4x = 720x1280) with a QR code back to the game, shown in an
 // overlay with 保存图片 / 分享给朋友 (system share sheet on phones) / 关闭. Long-press also saves on phones.
-const SHARE_URL = './';
-const QR = [];   // regenerate with: python D:/Minigame/_workflow/tools/qr_matrix.py <url>
+const SHARE_URL = 'https://www.aiwanna.games/games/game-fa168b428022f28c';
+const QR = ['11111110110010101010001111111', '10000010010011001001001000001', '10111010011101110001001011101', '10111010011011001100101011101', '10111010001000101111001011101', '10000010001111100100101000001', '11111110101010101010101111111', '00000000100111101000000000000', '11011010000000101101001000001', '00011001101110110001000110110', '01101110000110111010110100100', '11001101100010101101111001001', '00111010111100111010101100001', '01110000010111011110101011111', '11000110010011010101110100101', '00101001100010010000111110101', '10010011100101110000100001000', '11000100111010110111110010110', '11110010010110010001101001001', '11101000111011111000011111100', '11010011001100001100111111110', '00000000101111011010100011000', '11111110010110111111101011000', '10000010000010011101100010011', '10111010110100010001111111001', '10111010100111111111010100011', '10111010001010010000110110111', '10000010111000100000001101101', '11111110100101110001100011000'];   // regenerate with: python D:/Minigame/_workflow/tools/qr_matrix.py <url>
 function drawQR(qx, qy) {
   if (!QR.length) return;
   g.fillStyle = OUT; g.fillRect(qx - 4, qy - 4, QR.length + 8, QR.length + 8); g.fillStyle = '#ffffff'; g.fillRect(qx - 3, qy - 3, QR.length + 6, QR.length + 6);
@@ -2224,7 +2224,7 @@ function makeShare() {
   // ---- QR + link ----
   drawQR(12, 280);
   txt('扫码，一起来玩', 50, 289, 8.5, '#ffffff', 'left');
-  txt(SHARE_URL.replace(/^https?:\/\//, '').replace(/\/$/, ''), 50, 303, 6, '#9fe8ff', 'left');
+  txt('aiwanna.games', 50, 303, 6, '#9fe8ff', 'left');
   const S2 = 4, out = mk(W * S2, H * S2), o = out.getContext('2d'), k0 = K;
   o.imageSmoothingEnabled = false; o.drawImage(low, 0, 0, W * S2, H * S2);
   K = S2;

@@ -4,7 +4,7 @@
 
 按住就压，看看它会怎么碎。
 
-**在线试玩：** https://grrreymane.github.io/KittyPress/
+**在线试玩：** https://www.aiwanna.games/games/game-fa168b428022f28c（也可直接打开 https://grrreymane.github.io/KittyPress/）
 
 **宣传视频：** [media/trailer.mp4](media/trailer.mp4)
 
