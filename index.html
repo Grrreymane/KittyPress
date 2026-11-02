@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#140c2a">
 <meta name="description" content="按住就压，看看它会怎么碎。">
-<title>喵喵液压机 Kitty Press</title>
+<title>喵的压缩艺术 Cat Press Art</title>
 <meta property="og:type" content="website">
-<meta property="og:title" content="喵喵液压机 Kitty Press">
+<meta property="og:title" content="喵的压缩艺术 Cat Press Art">
 <meta property="og:description" content="按住就压，看看它会怎么碎。">
 <meta property="og:url" content="https://www.aiwanna.games/games/game-fa168b428022f28c">
 <meta property="og:image" content="https://grrreymane.github.io/KittyPress/cover.png">
@@ -33,7 +33,7 @@
 </style>
 </head>
 <body>
-<div id="wrap"><canvas id="c" aria-label="喵喵液压机游戏画面"></canvas></div>
+<div id="wrap"><canvas id="c" aria-label="喵的压缩艺术游戏画面"></canvas></div>
 <script>
 // If the game fails to start or keeps crashing, show the error (players can screenshot it) instead of a blank screen.
 window.__gameErr = function (msg) {
@@ -2216,7 +2216,7 @@ function drawQR(qx, qy) {
 function makeShare() {
   TQ.length = 0; g.clearRect(0, 0, W, H);
   ['#222640', '#262b48', '#2a3050', '#2e3558'].forEach((c, i) => { g.fillStyle = c; g.fillRect(0, i * 80, W, 80); });
-  txt('喵喵液压机', 90, 24, 14, '#ffe14a');
+  txt('喵的压缩艺术', 90, 24, 14, '#ffe14a');
   g.drawImage(I.cat, 66, 44);
   panel(10, 110, 160, 140);
   txt('压扁了', 90, 132, 9, '#8a6a4a', 'center', null); txt(String(total), 90, 164, 22, '#c0392b', 'center', null);
@@ -2230,7 +2230,7 @@ function makeShare() {
   K = S2;
   for (const t of TQ) { const c = textSprite(t), w_ = c.w - 2 * c.pad; o.globalAlpha = t.alpha; o.drawImage(c.cv, R(t.x * K - c.pad - (t.align === 'center' ? w_ / 2 : t.align === 'right' ? w_ : 0)), R(t.y * K - c.h / 2)); }
   o.globalAlpha = 1; K = k0; TQ.length = 0; g.clearRect(0, 0, W, H);
-  showShare(out, '我在喵喵液压机里压扁了 ' + total + ' 件东西，你也来试试：');
+  showShare(out, '我在喵的压缩艺术里压扁了 ' + total + ' 件东西，你也来试试：');
 }
 let shareEl = null;
 function showShare(cvs, msg) {
@@ -2248,7 +2248,7 @@ function showShare(cvs, msg) {
     cvs.toBlob(blob => {
       if (!blob || !navigator.canShare) return;
       const file = new File([blob], name, { type: 'image/png' });
-      if (navigator.canShare({ files: [file] })) btn('分享给朋友', '#4a88e0', () => { navigator.share({ files: [file], title: '喵喵液压机', text: msg + SHARE_URL }).catch(() => {}); });
+      if (navigator.canShare({ files: [file] })) btn('分享给朋友', '#4a88e0', () => { navigator.share({ files: [file], title: '喵的压缩艺术', text: msg + SHARE_URL }).catch(() => {}); });
     });
   } catch (e) {}
   btn('关闭', '#8a8a9a', () => { el.remove(); shareEl = null; });
@@ -2280,8 +2280,8 @@ function renderCover() {
   [[16, 26, 5, 24], [16, 28, 5, 29], [28, 26, 39, 24], [28, 28, 39, 29]].forEach(([a, b, c2, d]) => pxLine(278 + a, 120 + b, 278 + c2, 120 + d, '#fff6e8'));
   const big = mk(CW * S, CH * S), bx = big.getContext('2d'); bx.imageSmoothingEnabled = false; bx.drawImage(c, 0, 0, CW * S, CH * S);
   const T = (s, x, y, px, col) => { bx.font = px + 'px ' + FONT; bx.textAlign = 'center'; bx.fillStyle = OUT; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) bx.fillText(s, x + dx * px / 12, y + dy * px / 12); bx.fillStyle = col; bx.fillText(s, x, y); };
-  T('喵喵液压机', 1410, 230, 144, '#ffe14a');
-  T('Kitty Press · 按住就压，压完变名画', 1410, 330, 48, '#dff6ff');
+  T('喵的压缩艺术', 1410, 230, 144, '#ffe14a');
+  T('Cat Press Art · 按住就压，压完变名画', 1410, 330, 48, '#dff6ff');
   document.body.innerHTML = ''; big.style.cssText = 'position:fixed;left:0;top:0;width:1920px;height:1080px'; document.body.appendChild(big);
   document.title = 'COVER READY';
 }

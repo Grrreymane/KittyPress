@@ -1,6 +1,6 @@
-# 喵喵液压机 Kitty Press
+# 喵的压缩艺术 Cat Press Art
 
-![喵喵液压机 Kitty Press](cover.png)
+![喵的压缩艺术 Cat Press Art](cover.png)
 
 按住就压，看看它会怎么碎。
 
