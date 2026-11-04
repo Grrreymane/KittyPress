@@ -530,11 +530,19 @@ function discArt(G, A, rec, r) {   // the first eight: smeared into rings, seen 
   if (A.extra) A.extra(H2, r, cx / 2, cy / 2, R0 / 2, rec);
 }
 // ---- the outline painter
-const MATS = {   // ooze: how far the inside squeezes out past the outline; lobes: bulges around it; bul: fatter in the middle;
-  // warp: how much the outline wobbles; streak: colours dragged outward in streaks
-  soft: { ooze: 9, lobes: 4, bul: .32, warp: 1.6, streak: .16 }, elastic: { ooze: 7, lobes: 9, torn: true, bul: .26, warp: 1.2, streak: .1 },
-  firm: { ooze: 3.5, lobes: 4, crease: 2, bul: .2, warp: 1, streak: .06 }, plastic: { ooze: 2, lobes: 7, crease: 4, bul: .2, warp: 1, streak: .04 },
-  hard: { ooze: 0, shatter: true, bul: .06, warp: .3, streak: 0 },
+const MATS = {   // by what the thing is made of (MAT). ooze: how far the inside squeezes out past the outline (juice runs
+  // thin and see-through; plush and rubber spread their own colour); lobes: bulges around it; bul: fatter in the middle;
+  // warp / jag: a slow / crinkly wobble of the outline; streak: colours dragged outward; crease: fold lines; bend: the
+  // whole slab bowed; dents; rim: short cracks in from the edge; shatter: pieces (grain < 1: long splinters);
+  // spr: how far it spreads (metal and pieces of china hardly grow, juice runs everywhere)
+  juicy: { spr: 1, ooze: 9, lobes: 4, bul: .32, warp: 1.6, streak: .16, juice: true },
+  plush: { spr: 0.8, ooze: 2.5, lobes: 13, bul: .3, warp: .8, streak: 0, own: true },
+  clay: { spr: 0.9, ooze: 1.2, lobes: 6, bul: .3, warp: .6, streak: .05, rim: 9 },
+  crumple: { spr: 0.45, ooze: 0, crease: 7, bul: .08, warp: .4, jag: 1.1, streak: 0 },
+  dense: { spr: 0.35, ooze: 0, crease: 2, bul: .06, warp: .2, bend: .5, dents: 4, streak: 0 },
+  brittle: { spr: 0.6, ooze: 0, shatter: 12, grain: 1, bul: .03, warp: .2, streak: 0 },
+  wood: { spr: 0.5, ooze: 0, shatter: 7, grain: .3, bul: .03, warp: .2, streak: 0 },
+  rubber: { spr: 0.8, ooze: 5, lobes: 9, torn: true, own: true, bul: .25, warp: 1, streak: .1 },
 };
 function smoothAt(pd, u, v) {   // sprite colour at a fractional spot; the outline is smoothed (bilinear coverage) rather than stepped
   const x0 = Math.floor(u - .5), y0 = Math.floor(v - .5), fx = u - .5 - x0, fy = v - .5 - y0;
@@ -554,19 +562,19 @@ function nearestIn(msk) {   // for every pixel: the nearest pixel inside msk and
   for (let y = AH - 1; y >= 0; y--) for (let x = AW - 1; x >= 0; x--) { const i = y * AW + x; if (x < AW - 1) tryN(i, i + 1); if (y < AH - 1) { tryN(i, i + AW); if (x < AW - 1) tryN(i, i + AW + 1); if (x) tryN(i, i + AW - 1); } }
   return { near, d };
 }
-function shatterBuf(buf, r, sc) {   // hard things: the outline breaks into pieces that slide apart, each with a dark broken edge
+function shatterBuf(buf, r, sc, ns, grain) {   // brittle things and wood: pieces that slide apart, each with a dark broken edge, plus chips
   const N = AW * AH, pts = []; for (let i = 0; i < N; i++) if (buf[i]) pts.push(i);
   if (!pts.length) return buf;
   let mx = 0, my = 0; pts.forEach(i => { mx += i % AW; my += i / AW | 0; }); mx /= pts.length; my /= pts.length;
   const seeds = [];
-  for (let s = 0, ns = 6 + Math.floor(r() * 4); s < ns; s++) {
-    const i = pts[Math.floor(r() * pts.length)], x = i % AW, y = i / AW | 0, a = Math.atan2(y - my, x - mx), d = (1 + r() * 1.6) * sc;
+  for (let s = 0; s < ns; s++) {
+    const i = pts[Math.floor(r() * pts.length)], x = i % AW, y = i / AW | 0, a = Math.atan2(y - my, x - mx), d = (.6 + r() * 1.2) * sc;
     seeds.push({ x, y, ox: R(Math.cos(a) * d), oy: R(Math.sin(a) * d * .8) });
   }
   const out = new Array(N).fill(null), oc = new Int8Array(N).fill(-1);
   for (const i of pts) {
     const x = i % AW, y = i / AW | 0; let b = 0, bd = 1e9;
-    seeds.forEach((s, j) => { const d = (x - s.x) ** 2 + (y - s.y) ** 2; if (d < bd) { bd = d; b = j; } });
+    seeds.forEach((s, j) => { const d = ((x - s.x) * grain) ** 2 + (y - s.y) ** 2; if (d < bd) { bd = d; b = j; } });
     const nx = x + seeds[b].ox, ny = y + seeds[b].oy;
     if (nx >= 0 && ny >= 0 && nx < AW && ny < AH) { out[ny * AW + nx] = buf[i]; oc[ny * AW + nx] = b; }
   }
@@ -575,6 +583,11 @@ function shatterBuf(buf, r, sc) {   // hard things: the outline breaks into piec
     if (!out[i]) continue;
     const x = i % AW, nb = [x ? i - 1 : -1, x < AW - 1 ? i + 1 : -1, i - AW, i + AW];
     if (nb.some(j => j < 0 || j >= N || !out[j] || oc[j] !== oc[i])) res[i] = shade(out[i], -42);
+  }
+  for (let k = 0; k < ns * 2; k++) {   // small chips scattered outward
+    const i = pts[Math.floor(r() * pts.length)], x = i % AW, y = i / AW | 0, a = Math.atan2(y - my, x - mx), d = (5 + r() * 9) * sc / 1.4;
+    const nx = R(x + Math.cos(a) * d), ny = R(y + Math.sin(a) * d * .8);
+    for (let q = 0; q < 3; q++) { const j = (ny + (q > 1)) * AW + nx + (q & 1); if (nx >= 0 && ny >= 0 && nx < AW - 1 && ny < AH - 1 && !res[j]) res[j] = shade(buf[i], -10); }
   }
   return res;
 }
@@ -594,7 +607,7 @@ function shapeArt(G, rec, r, parts) {
   const N = AW * AH, sp = clamp(rec.sp || 1.5, 1, 2.2), many = parts.length > 1;
   const T = parts.map(p => {   // flattened: wider, lower (tall things more so), fatter in the middle, a little tilted
     // things lying flat (a banana, a keyboard) just spread, so their outline survives; upright ones also get squashed down
-    const M = MATS[p.mat], w = p.spr.width, h = p.spr.height, sx = 1 + (sp - 1) * .9, sy = sx * lerp(.42, .9, clamp((w / h - .8) / .8, 0, 1));
+    const M = MATS[p.mat], w = p.spr.width, h = p.spr.height, sx = 1 + (sp - 1) * .9 * M.spr, sy = sx * lerp(.42, .9, clamp((w / h - .8) / .8, 0, 1));
     return { p, M, w, h, sx, sy, rot: (r() - .5) * (many ? .5 : .3), W: w * sx * (1 + M.bul * .7), H: h * sy, f1: r() * 6, f2: r() * 6, f3: r() * 6 };
   });
   // several things: squeezed into each other, staggered up and down
@@ -613,11 +626,25 @@ function shapeArt(G, rec, r, parts) {
       lx *= st; ly *= st;
       const v0 = ly / t.sy + t.h / 2; if (v0 < -2 || v0 >= t.h + 2) continue;
       const u0 = lx / (t.sx * (1 + M.bul * (1 - Math.pow(clamp(2 * v0 / t.h - 1, -1, 1), 2)))) + t.w / 2;
-      const u = u0 + M.warp * Math.sin(v0 * .45 + t.f3), v = v0 + M.warp * .7 * Math.sin(u0 * .32 + t.f1);   // a wobbly outline
+      let u = u0 + M.warp * Math.sin(v0 * .45 + t.f3), v = v0 + M.warp * .7 * Math.sin(u0 * .32 + t.f1);   // a wobbly outline
+      if (M.jag) {   // crinkled: an irregular wobble (three waves that never line up)
+        u += M.jag * (Math.sin(v0 * 1.3 + t.f2) * .5 + Math.sin(v0 * 2.9 + t.f3) * .3 + Math.sin(v0 * 5.3 + t.f1) * .2);
+        v += M.jag * (Math.sin(u0 * 1.1 + t.f3) * .5 + Math.sin(u0 * 3.1 + t.f2) * .3 + Math.sin(u0 * 4.7 + t.f1) * .2);
+      }
+      if (M.bend) v += M.bend * t.h * .12 * Math.sin(Math.PI * clamp(u0 / t.w, 0, 1)) * (t.f1 > 3 ? 1 : -1);   // bowed
       const c = smoothAt(pd, u, v); if (c) buf[y * AW + x] = c;
     }
     if (M.crease) creaseBuf(buf, r, M.crease + Math.floor(r() * 2));
-    if (M.shatter) buf = shatterBuf(buf, r, k * (.8 + rec.m * .5));
+    if (M.dents) for (let q = 0; q < M.dents; q++) {   // round dents: shadow on the top-left, light on the bottom-right
+      const pts = []; for (let i = 0; i < N; i++) if (buf[i]) pts.push(i);
+      if (!pts.length) break;
+      const i0 = pts[Math.floor(r() * pts.length)], dx0 = i0 % AW, dy0 = i0 / AW | 0, rr = 2 + r() * 3;
+      for (let y = dy0 - 6; y <= dy0 + 6; y++) for (let x = dx0 - 6; x <= dx0 + 6; x++) {
+        const j = y * AW + x, d = Math.hypot(x - dx0, y - dy0); if (x < 0 || y < 0 || x >= AW || y >= AH || !buf[j] || d > rr) continue;
+        buf[j] = shade(buf[j], (x - dx0) + (y - dy0) < 0 ? -22 : 12);
+      }
+    }
+    if (M.shatter) buf = shatterBuf(buf, r, k * (.8 + rec.m * .5), M.shatter + Math.floor(r() * 3), M.grain);
     for (let i = 0; i < N; i++) if (buf[i]) { col[i] = buf[i]; pid[i] = pi; }
   });
   // squeezed out past the outline: lobes of the inside (or the thing's own colours, lighter, running toward the splash colour)
@@ -629,9 +656,12 @@ function shapeArt(G, rec, r, parts) {
     const ph = Math.atan2((q / AW | 0) - t.cy, q % AW - t.cx), L = M.lobes;
     let lob = Math.pow(.5 + .5 * Math.sin(ph * L + w1), 2) * .75 + .25 * (.5 + .5 * Math.sin(ph * (2 * L + 1) + w2));
     if (M.torn) lob = Math.pow(lob, 3) * 1.6;
+    if (M.own && !M.torn) lob = .5 + .5 * lob;   // plush: a soft even fringe
     const amp = M.ooze * k / 1.4 * (.3 + .7 * lob) * (.7 + .5 * rec.m);
     if (O.d[i] > amp) continue;
-    fin[i] = t.p.inner || mixHex(shade(col[q], 14), t.p.splat[0], clamp(.2 + .4 * O.d[i] / amp, 0, 1)); fid[i] = pid[q];
+    fin[i] = M.own ? shade(col[q], 6 - O.d[i] * 3)
+      : mixHex(t.p.inner || mixHex(shade(col[q], 14), t.p.splat[0], clamp(.2 + .4 * O.d[i] / amp, 0, 1)), CLOTH, .25 + .3 * O.d[i] / amp);   // juice is thin: the cloth shows through
+    fid[i] = pid[q];
   }
   // a darker rim, a contour line inside for each time the paw let go, then a little brush texture
   const I2 = nearestIn(fin.map(c => !c)), rim = [], inner = [];
@@ -660,6 +690,10 @@ function shapeArt(G, rec, r, parts) {
       const [x, y, ux, uy] = X.redge(1, 6, pi), rad = (t.p.big ? 2.4 : 1.4) + r() * 2.6, c = S[Math.floor(r() * S.length)];
       G.ell(x + ux * rad, y + uy * rad, rad, rad * .9, c);
       if (r() < .6) { const e = rad * 2 + 3 + r() * 5; G.ell(x + ux * e, y + uy * e, 1.1, 1.1, c); }
+    }
+    for (let q = 0; q < (t.M.rim || 0); q++) {   // clay: short cracks running in from the edge
+      const [x, y, ux, uy] = X.redge(-1, 0, pi), L = 3 + r() * 5;
+      for (let d = 0; d < L; d++) { const px = R(x - ux * d + (r() - .5)), py = R(y - uy * d), c = G.get(px, py); if (c && c !== CLOTH) G.set(px, py, shade(c, -38)); }
     }
     if (t.p.extra) ARTX[t.p.extra](Object.assign({}, X, { redge: (a, b) => X.redge(a, b, pi) }), t.p.A);
   });
@@ -994,6 +1028,93 @@ function drawSquash(c, cx, by, s, wm, base) {
     g.drawImage(c, 0, sy, w0, 1, R(cx - w / 2), by - dh + j, w, 1);
   }
 }
+// ---- crushing by material (side view): each thing gives the way it really would, not like rubber.
+// juicy / plush / clay bulge out (juicy ones tear at the sides, clay cracks at the rim); crumple folds into pleats one
+// section at a time, the sections above sliding a little sideways; dense bends; brittle and wood stay rigid until they
+// break, then the pieces collapse into a pile (wood in long splinters along the grain). rubber bulges, and once popped
+// lies as a wrinkled skin. Drawn per pixel into a small canvas per thing, only when its shape changes.
+const SRCD = new Map();
+function srcData(c) { let d = SRCD.get(c); if (!d) SRCD.set(c, d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data); return d; }
+function crushView(it, s) {
+  const c = it.spr, w = c.width, h = c.height, S = srcData(c), mat = it.popped ? 'crumple' : it.d.mat;
+  let C = it.cr;
+  if (!C || C.spr !== c) {
+    C = it.cr = { spr: c, W: Math.ceil(w * 2.4) + 4, H: h, key: '' };
+    C.cv = mk(C.W, C.H); C.x = C.cv.getContext('2d'); C.img = C.x.createImageData(C.W, C.H);
+    const r = rng(it.seed || 1), cuts = [0];   // crumple: horizontal sections that fold in a random order
+    for (let k = 0, nb = 4 + Math.floor(r() * 3); k < nb - 1; k++) cuts.push(R(h * (.12 + .76 * r())));
+    cuts.push(h); cuts.sort((a, b) => a - b);
+    C.bands = [];
+    for (let k = 0; k < cuts.length - 1; k++) if (cuts[k + 1] - cuts[k] >= 2) C.bands.push({ v0: cuts[k], v1: cuts[k + 1], ord: r(), np: 1 + Math.floor(r() * 2), dir: r() < .5 ? -1 : 1 });
+    C.bend = r() < .5 ? -1 : 1; C.f = r() * 6;
+  }
+  const key = s.toFixed(3) + (it.broken ? 'b' : '') + (it.popped ? 'p' : '');
+  if (C.key === key) return C.cv;
+  C.key = key;
+  const D = C.img.data, CW = C.W, mid = CW / 2; D.fill(0);
+  const put = (xo, yo, si, k) => { xo |= 0; yo |= 0; if (xo < 0 || yo < 0 || xo >= CW || yo >= C.H) return; const o = (yo * CW + xo) * 4; D[o] = S[si] * k; D[o + 1] = S[si + 1] * k; D[o + 2] = S[si + 2] * k; D[o + 3] = S[si + 3]; };
+  const row = (yo, v, F, shift, k, edge) => {   // one output row: source row v stretched by F around the middle, moved by shift
+    const half = w * F / 2 + 1;
+    for (let xo = Math.floor(mid + shift - half); xo <= Math.ceil(mid + shift + half); xo++) {
+      const u = Math.floor((xo + .5 - mid - shift) / F + w / 2); if (u < 0 || u >= w) continue;
+      const si = (v * w + u) * 4; if (S[si + 3] < 10) continue;
+      put(xo, yo, si, edge ? edge(u, k) : k);
+    }
+  };
+  const Hc = Math.max(1, R(h * s)), bot = C.H - 1;
+  if ((mat === 'brittle' || mat === 'wood') && it.broken) {   // pieces: rigid, sliding apart and settling into a pile
+    if (!C.ch) {
+      const r = rng((it.seed || 1) + 7), op = [], grain = mat === 'wood' ? .3 : 1;
+      for (let v = 0; v < h; v++) for (let u = 0; u < w; u++) if (S[(v * w + u) * 4 + 3] >= 10) op.push(v * w + u);
+      const seeds = []; for (let k = 0, n = mat === 'wood' ? 7 : 10 + Math.floor(r() * 4); k < n; k++) seeds.push(op[Math.floor(r() * op.length)]);
+      C.cid = new Int16Array(w * h).fill(-1);
+      const acc = seeds.map(() => ({ sx: 0, sy: 0, n: 0, top: 0, px: [] }));
+      for (const p of op) {
+        const u = p % w, v = p / w | 0; let b = 0, bd = 1e9;
+        seeds.forEach((q, j) => { const dx = (u - q % w) * grain, dy = v - (q / w | 0), d = dx * dx + dy * dy; if (d < bd) { bd = d; b = j; } });
+        C.cid[p] = b; const A = acc[b]; A.sx += u - w / 2; A.sy += h - 1 - v; A.n++; A.top = Math.max(A.top, h - 1 - v); A.px.push(p);
+      }
+      C.ch = acc.filter(A => A.n).map(A => ({ xc: A.sx / A.n, yc: A.sy / A.n, top: A.top, px: A.px, dir: A.sx / A.n < 0 ? -1 : A.sx / A.n > 0 ? 1 : r() < .5 ? -1 : 1, jit: r() })).sort((a, b) => a.yc - b.yc);
+    }
+    const e = clamp((1 - s) / .8, 0, 1), K = mat === 'wood' ? .7 : 1;
+    for (const ch of C.ch) {
+      // the pile spreads in proportion (no gap opens in the middle); higher pieces fall further out
+      const r2 = Math.max(s, .5), slide = (ch.xc * .45 + ch.dir * ch.yc * .12 + (ch.jit - .5) * 3) * e * K;
+      let yc = ch.yc * s; const top = yc + (ch.top - ch.yc) * r2; if (top > Hc - 1) yc -= top - (Hc - 1);
+      for (const p of ch.px) {
+        const u = p % w, v = p / w | 0, yb = h - 1 - v, id = C.cid[p];
+        const crack = C.cid[p - 1] !== id || C.cid[p + 1] !== id || (v > 0 && C.cid[p - w] !== id) || (v < h - 1 && C.cid[p + w] !== id);
+        put(mid + u - w / 2 + slide, bot - R(yc + (yb - ch.yc) * r2), p * 4, crack ? .68 : 1);
+      }
+    }
+  } else if (mat === 'crumple') {   // sections fold one after another into pleats that stick out
+    const qmin = .12, B = C.bands.slice().sort((a, b) => a.ord - b.ord);
+    let L = h * (1 - s);
+    for (const b of B) { const bh = b.v1 - b.v0, loss = Math.min(L, bh * (1 - qmin)); L -= loss; b.q = 1 - loss / bh; b.c = (1 - b.q) / (1 - qmin); }
+    let y0 = 0, sh = 0;
+    for (let k = C.bands.length - 1; k >= 0; k--) {   // from the bottom up
+      const b = C.bands[k], bh = b.v1 - b.v0, hb = bh * b.q, n = Math.max(1, R(y0 + hb) - R(y0));
+      for (let j = 0; j < n; j++) {
+        const np = Math.max(.5, Math.min(b.np, n / 3)), f = (j + .5) / n, v = clamp(Math.floor(b.v1 - f * bh), 0, h - 1), wave = Math.abs(Math.sin(Math.PI * f * np));   // a pleat needs a few rows
+        const F = 1 + b.c * (.1 + .3 * wave) * Math.min(1, 24 / w) * (1 + (hash2(v, (it.seed | 0) & 1023) - .5) * .2);   // pleats stick out a few pixels, wide or narrow
+        row(bot - R(y0) - j, v, F, sh + b.dir * b.c * 3 * f, 1 + b.c * .3 * Math.cos(2 * Math.PI * f * np));
+      }
+      y0 += hb; sh += b.dir * b.c * 3;
+    }
+  } else {   // a continuous squeeze: bulge (juicy, plush, clay, rubber) or a bend (dense)
+    const dense = mat === 'dense', A = dense ? .25 * (1 - s) : it.d.wmax(it, s) - 1, b = dense ? .3 : it.d.base;
+    const rag = mat === 'juicy' ? .3 * clamp((.85 - s) / .5, 0, 1) : 0, clay = mat === 'clay' && s < .75;
+    for (let j = 0; j < Hc; j++) {
+      const t = (j + .5) / Hc, v = Math.min(h - 1, Math.floor(t * h));
+      let F = 1 + A * (b + (1 - b) * Math.sin(Math.PI * t));
+      if (rag) F *= 1 + (hash2(v, (it.seed | 0) & 1023) - .5) * rag;   // torn, uneven sides
+      const shift = dense ? C.bend * (1 - s) * w * .16 * Math.sin(Math.PI * t) : 0, dent = dense && t < .1 && s < .8 ? .8 : 1;
+      row(bot - Hc + 1 + j, v, F, shift, dent, clay ? (u, k) => Math.abs(u - w / 2) > w * .36 && ((v >> 1) + (u >> 2)) % 3 === 0 ? k * .6 : k : null);
+    }
+  }
+  C.x.putImageData(C.img, 0, 0);
+  return C.cv;
+}
 // pressure (tons) -> height left, piecewise linear
 function curveAt(pts, p) {
   if (p <= pts[0][0]) return pts[0][1];
@@ -1075,8 +1196,8 @@ const CUSHION_CURVE = [[0, 1], [.5, .6], [1, .36], [1.6, .2]];
 const CORE_CURVE = [[0, 1], [.6, .6], [1.2, .36], [1.8, .2]];
 const VENTS = [[6, 12], [40, 12]];   // where lava spurts from, in the trimmed planet sprite
 const DEF = {
-  can: {   // crumples fast, then the soda bursts out sideways and onto the screen
-    base: .35, pcol: '#a85a20', word: '扁了！',
+  can: {   // crumples fast (folds into pleats), then the soda bursts out sideways and onto the screen
+    base: .35, pcol: '#a85a20', word: '扁了！', mat: 'crumple',
     init(it) { it.v = Math.floor(Math.random() * CAN_SPR.length); it.spr = CAN_SPR[it.v]; },
     curve: (it, p) => curveAt(CAN_CURVE, p),
     wmax: (it, s) => 1 + .62 * Math.pow(Math.max(0, 1 - s), .8),
@@ -1085,16 +1206,6 @@ const DEF = {
       if (it.stage === 1 && it.s < .68) { it.stage = 2; it.spray = 1.1; SFX.spray(); vib([20, 30, 20]); pop('噗嗤！', it.x - 30, ram.y + 12, '#ffe0a0', 12, .9); splat(9, ['#c8702a', '#e8a050', '#d89040']); }
       if (it.stage === 2 && it.s < .45) { it.stage = 3; SFX.crunch(); chips(3, ['#cdd6e4']); }
       if (it.stage === 3 && it.s < .19) crushed();
-    },
-    over(it, cx, by, s, wm) {   // folds appear as it crumples
-      const dh = Math.max(1, R(it.spr.height * s)), nf = Math.min(Math.floor((1 - s) * 8), Math.floor(dh / 3)), top = by - dh;
-      for (let k = 1; k <= nf; k++) {
-        const t = k / (nf + 1), y = top + R(dh * t), bw = R(22 * (1 + (wm - 1) * (.35 + .65 * Math.sin(Math.PI * t)))) - 2, x0 = R(cx - bw / 2);
-        for (let i = 0; i < bw; i++) {
-          const yy = y + (((i + k * 3) >> 1) & 1);
-          g.fillStyle = 'rgba(20,10,30,.45)'; g.fillRect(x0 + i, yy, 1, 1); g.fillStyle = 'rgba(255,255,255,.3)'; g.fillRect(x0 + i, yy - 1, 1, 1);
-        }
-      }
     },
   },
   ball: {   // squashes wide, kicks the ram back up once, pops on the second squeeze
@@ -1551,10 +1662,22 @@ const ARTX = {
   crystals(X) { for (let i = 0; i < 7; i++) { const [x, y] = X.redge(3, 14); X.G.tri(x, y - 6, x - 4, y, x + 4, y, '#d0a0ff'); X.G.tri(x - 4, y, x + 4, y, x, y + 4, '#9a50e0'); X.G.set(x - 1, y - 3, '#f4e4ff'); } },
 };
 const SPR = {};
+// what each thing is really made of, which decides how it gives (crushView) and how its painting looks (MATS)
+const MAT = {};
+Object.entries({
+  juicy: 'tomato lemon pudding melon pumpkin jelly burger icecream banana berry pineapple orange broccoli',
+  plush: 'donut teddy marsh yarn sneaker bread',
+  clay: 'onigiri soap goldbar candle eraser',
+  crumple: 'duck paste clock ketchup crayon coffee fishcan toaster radio deskglobe cooker microwave vending fridge car rocket box bubble thermos lamp fan extinguisher drum suitcase knight motorbike washer bus plane ufo',
+  dense: 'safe anvil book phone pan dumbbell typewriter anchor bike',
+  brittle: 'bulb rubik ice console piggy coconut lego bowling meteor teapot bowl flowerpot helmet vase hydrant tv statue honey keyboard camera',
+  wood: 'guitar chest piano skate grandclock',
+  rubber: 'balloon soccer tire basketball',
+}).forEach(([m, ks]) => ks.split(' ').forEach(k => MAT[k] = m));
 function genDef(S) {
   const crush = CURVE[S.hard ? 'broken' : S.type === 'elastic' ? 'soft' : S.type], sEnd = crush[crush.length - 1][1] + .03;
   return {
-    base: S.base === undefined ? .4 : S.base, pcol: S.pcol || '#000000', word: S.word, elastic: S.type === 'elastic',
+    base: S.base === undefined ? .4 : S.base, pcol: S.pcol || '#000000', word: S.word, elastic: S.type === 'elastic', mat: MAT[S.k] || 'juicy',
     init(it) { it.spr = SPR[S.k]; it.fi = 0; if (S.hard) it.cracks = makeCracks(it.spr.width / 2, it.spr.height / 2, Math.min(it.spr.width, it.spr.height) / 2, 6); },
     curve(it, p) {
       if (S.type === 'elastic') return it.popped ? .15 : curveAt(CURVE.elastic, p);
@@ -1583,7 +1706,7 @@ function genDef(S) {
     over(it, cx, by, s) {
       const w = it.spr.width, h = it.spr.height;
       if (S.glow && !it.broken && it.strain > 0) { g.globalAlpha = it.strain * .45; disc(cx, by - h * .65, w * .45, S.glow); g.globalAlpha = 1; }
-      if (S.hard && !it.broken && it.stage) drawCracks(it.cracks, [0, 2, 4, 6][it.stage], [0, 3, 5, 99][it.stage], R(cx) - w / 2, by - h, 1, S.crack || 'rgba(255,255,255,.85)');
+      if (S.hard && !it.broken && it.stage) drawCracks(it.cracks, [0, 2, 4, 6][it.stage], [0, 3, 5, 99][it.stage], R(cx) - w / 2, by - h, 1, S.crack || (/crumple|dense/.test(MAT[S.k]) ? 'rgba(30,24,44,.6)' : 'rgba(255,255,255,.85)'));
     },
   };
 }
@@ -1934,7 +2057,7 @@ for (const S of MORE) {
   DEF[S.k] = genDef(S);
   const A = S.art;
   ARTS[S.k] = {
-    part: { spr: SPR[S.k], mat: S.hard ? 'hard' : S.type, inner: A.inner, splat: A.splat, big: A.big, extra: A.extra, A },
+    part: { spr: SPR[S.k], mat: MAT[S.k] || 'juicy', inner: A.inner, splat: A.splat, big: A.big, extra: A.extra, A },
     medium: A.medium, titles: A.titles, quotes: A.quotes,
   };
 }
@@ -1997,7 +2120,7 @@ function spawn() {   // the next thing on the belt: now and then one that is too
 function nextItem(kind, many) {
   if (!many) grp = null;
   kind = kind || pickNext();
-  it = { kind, d: DEF[kind], x: 236, s: 1, sMin: 1, hy: 0, hv: 0, land: 0, stage: 0, flash: 0, strain: 0, debris: [], dspr: [], puddle: 0, contact: false, heavy: NEED[kind] > tons(), P: 0, off: 0 };
+  it = { kind, d: DEF[kind], x: 236, s: 1, sMin: 1, hy: 0, hv: 0, land: 0, stage: 0, flash: 0, strain: 0, debris: [], dspr: [], puddle: 0, contact: false, heavy: NEED[kind] > tons(), P: 0, off: 0, seed: Math.floor(Math.random() * 1e9) };
   it.d.init(it);
   phase = 'in'; P = 0; ram.vy = 0; ram.kick = ram.slam = false;
   if (ram.dent) ram.band = true;   // patched up between items
@@ -2261,8 +2384,14 @@ function drawItem() {
   const sw = R(it.spr.width * wm * .8 * (1 - Math.min(.5, it.hy / 40)));
   g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(R(it.x - sw / 2), BED - 1, sw, 2);
   if (d.under) d.under(it, cx, by, s, wm);
-  drawSquash(it.spr, cx, by, s, wm, d.base);
-  if (it.flash > 0) { g.globalAlpha = Math.min(1, it.flash * 10); drawSquash(flashOf(it.spr), cx, by, s, wm, d.base); g.globalAlpha = 1; }
+  if (d.mat) {
+    const v = crushView(it, s), x0 = R(cx - v.width / 2), y0 = by - v.height;
+    g.drawImage(v, x0, y0);
+    if (it.flash > 0) { g.globalAlpha = Math.min(1, it.flash * 10); g.drawImage(tintC(v, '#ffffff', .85), x0, y0); g.globalAlpha = 1; }
+  } else {
+    drawSquash(it.spr, cx, by, s, wm, d.base);
+    if (it.flash > 0) { g.globalAlpha = Math.min(1, it.flash * 10); drawSquash(flashOf(it.spr), cx, by, s, wm, d.base); g.globalAlpha = 1; }
+  }
   if (d.over) d.over(it, cx, by, s, wm);
   if (it.heavy && !it.broke) {   // a tag on the belt in front of things from the next tonnage (the head never covers it)
     const ty = BED + 10, t = '超重 · 要 ' + NEED[it.kind] + ' 吨', tw = textW(t, 6) + 6;
