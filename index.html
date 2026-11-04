@@ -413,9 +413,10 @@ function flashOf(c) { let f = FLASH.get(c); if (!f) FLASH.set(c, f = tintC(c, '#
 // ============================================================ paintings: every crushed thing becomes a framed picture
 // A painting is rebuilt from a small record, so the gallery only stores numbers. It is painted at twice the game's
 // pixel density (AW x AH) and drawn straight onto the screen, so it carries finer detail than the sprites.
-// Most things leave their own outline, flattened and spread, finished the way their material gives: soft things ooze,
-// plastic ones crease, hard ones shatter into pieces. The first eight keep their top-down smear (rings: top of the
-// thing in the middle, bottom at the rim). ART_W x ART_H is the size a painting is laid out at (logical pixels, s = 1).
+// A painting looks straight down the press, so everything spreads outward from the middle: the top of the thing ends up
+// in the centre and its lower parts in rings around it, inside the footprint of what was pressed (FOOT: round, long,
+// square, a ring...). Things lying down or falling over (a banana, a guitar) keep their own outline instead. Either way
+// it is finished the way its material gives (MATS). ART_W x ART_H is the size it is laid out at (logical pixels, s = 1).
 const ART_W = 48, ART_H = 40, AW = 96, AH = 80, CLOTH = '#f4ecd8';
 function rng(seed) { return () => { seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 const hash2 = (x, y) => ((x * 73856093 ^ y * 19349663) >>> 0) % 1000 / 1000;
@@ -532,18 +533,34 @@ function discArt(G, A, rec, r) {   // the first eight: smeared into rings, seen 
 // ---- the outline painter
 const MATS = {   // by what the thing is made of (MAT). ooze: how far the inside squeezes out past the outline (juice runs
   // thin and see-through; plush and rubber spread their own colour); lobes: bulges around it; bul: fatter in the middle;
-  // warp / jag: a slow / crinkly wobble of the outline; streak: colours dragged outward; crease: fold lines; bend: the
-  // whole slab bowed; dents; rim: short cracks in from the edge; shatter: pieces (grain < 1: long splinters);
+  // warp / jag: a slow / crinkly wobble of the outline; streak: colours dragged outward; crease: radial fold lines;
+  // dents; rim: short cracks in from the edge; shatter: pieces (grain < 1: long splinters pointing outward);
   // spr: how far it spreads (metal and pieces of china hardly grow, juice runs everywhere)
   juicy: { spr: 1, ooze: 9, lobes: 4, bul: .32, warp: 1.6, streak: .16, juice: true },
   plush: { spr: 0.8, ooze: 2.5, lobes: 13, bul: .3, warp: .8, streak: 0, own: true },
   clay: { spr: 0.9, ooze: 1.2, lobes: 6, bul: .3, warp: .6, streak: .05, rim: 9 },
   crumple: { spr: 0.45, ooze: 0, crease: 7, bul: .08, warp: .4, jag: 1.1, streak: 0 },
-  dense: { spr: 0.35, ooze: 0, crease: 2, bul: .06, warp: .2, bend: .5, dents: 4, streak: 0 },
+  dense: { spr: 0.35, ooze: 0, crease: 2, bul: .06, warp: .2, dents: 4, streak: 0 },
   brittle: { spr: 0.6, ooze: 0, shatter: 12, grain: 1, bul: .03, warp: .2, streak: 0 },
   wood: { spr: 0.5, ooze: 0, shatter: 7, grain: .3, bul: .03, warp: .2, streak: 0 },
   rubber: { spr: 0.8, ooze: 5, lobes: 9, torn: true, own: true, bul: .25, warp: 1, streak: .1 },
 };
+// what was pressed looks like this from above; anything not listed lies flat and keeps its own outline
+const FOOT = {};
+Object.entries({
+  'round 1': 'tomato orange pumpkin coconut yarn berry pineapple pudding burger icecream broccoli jelly balloon soccer basketball bowling meteor deskglobe statue bulb teapot bowl vase flowerpot honey helmet knight hydrant coffee candle ketchup thermos extinguisher drum fishcan lamp clock cooker ufo fan',
+  'round 1.35': 'lemon melon piggy bread marsh',
+  'square 1.15': 'box ice lego crayon toaster chest typewriter',
+  'square 1.9': 'car bus',
+  'ring 1': 'donut tire',
+  'tri 1': 'onigiri',
+}).forEach(([f, ks]) => { const [shape, asp] = f.split(' '); ks.split(' ').forEach(k => FOOT[k] = { shape, asp: +asp }); });
+function footRho(fp, nx, ny) {   // 0 in the middle, 1 on the outline (null: the hole of a ring)
+  if (fp.shape === 'square') return Math.pow(nx ** 4 + ny ** 4, .25);
+  if (fp.shape === 'ring') { const d = Math.hypot(nx, ny); return d < .32 ? null : (d - .32) / .68; }
+  if (fp.shape === 'tri') return Math.max(ny * 1.75, (nx * .87 - ny * .5) * 1.75, (-nx * .87 - ny * .5) * 1.75) * .9 + Math.hypot(nx, ny) * .1;
+  return Math.hypot(nx, ny);
+}
 function smoothAt(pd, u, v) {   // sprite colour at a fractional spot; the outline is smoothed (bilinear coverage) rather than stepped
   const x0 = Math.floor(u - .5), y0 = Math.floor(v - .5), fx = u - .5 - x0, fy = v - .5 - y0;
   let a = 0, best = null, bw = -1;
@@ -572,9 +589,14 @@ function shatterBuf(buf, r, sc, ns, grain) {   // brittle things and wood: piece
     seeds.push({ x, y, ox: R(Math.cos(a) * d), oy: R(Math.sin(a) * d * .8) });
   }
   const out = new Array(N).fill(null), oc = new Int8Array(N).fill(-1);
+  seeds.forEach(s => { s.rh = Math.hypot(s.x - mx, s.y - my); s.th = Math.atan2(s.y - my, s.x - mx); });
   for (const i of pts) {
-    const x = i % AW, y = i / AW | 0; let b = 0, bd = 1e9;
-    seeds.forEach((s, j) => { const d = ((x - s.x) * grain) ** 2 + (y - s.y) ** 2; if (d < bd) { bd = d; b = j; } });
+    const x = i % AW, y = i / AW | 0, rh = Math.hypot(x - mx, y - my), th = Math.atan2(y - my, x - mx); let b = 0, bd = 1e9;
+    seeds.forEach((s, j) => {   // grain < 1: distance counts less along the radius, so the pieces come out as long splinters
+      let da = Math.abs(th - s.th); if (da > Math.PI) da = 2 * Math.PI - da;
+      const d = grain < 1 ? ((rh - s.rh) * grain) ** 2 + (da * (rh + s.rh) / 2) ** 2 : (x - s.x) ** 2 + (y - s.y) ** 2;
+      if (d < bd) { bd = d; b = j; }
+    });
     const nx = x + seeds[b].ox, ny = y + seeds[b].oy;
     if (nx >= 0 && ny >= 0 && nx < AW && ny < AH) { out[ny * AW + nx] = buf[i]; oc[ny * AW + nx] = b; }
   }
@@ -591,13 +613,13 @@ function shatterBuf(buf, r, sc, ns, grain) {   // brittle things and wood: piece
   }
   return res;
 }
-function creaseBuf(buf, r, n) {   // plastic and firm things: crumple lines, dark on one side and catching the light on the other
+function creaseBuf(buf, r, n, cx, cy) {   // crumple lines running out from the middle, dark on one side and catching the light on the other
   const pts = []; for (let i = 0; i < buf.length; i++) if (buf[i]) pts.push(i);
   for (let k = 0; k < n && pts.length; k++) {
-    const i = pts[Math.floor(r() * pts.length)], px = i % AW, py = i / AW | 0, a = r() * Math.PI, nx = Math.cos(a), ny = Math.sin(a), L = 8 + r() * 14;
+    const a = r() * Math.PI * 2, nx = Math.cos(a), ny = Math.sin(a), al0 = 3 + r() * 10, al1 = al0 + 8 + r() * 18, tw = (r() - .5) * .06;
     for (const j of pts) {
-      const dx = j % AW - px, dy = (j / AW | 0) - py, s = dx * ny - dy * nx, al = dx * nx + dy * ny;
-      if (Math.abs(al) > L) continue;
+      const dx = j % AW - cx, dy = (j / AW | 0) - cy, al = dx * nx + dy * ny; if (al < al0 || al > al1) continue;
+      const s = -dx * ny + dy * nx + tw * al * al / 4;   // a slight curve
       if (Math.abs(s) < .7) buf[j] = shade(buf[j], -30); else if (s > 0 && s < 2.2) buf[j] = shade(buf[j], 16);
     }
   }
@@ -605,36 +627,59 @@ function creaseBuf(buf, r, n) {   // plastic and firm things: crumple lines, dar
 // parts: [{ spr, mat, inner, splat, big, extra, A }]: one thing, or several crushed side by side (they overlap a little)
 function shapeArt(G, rec, r, parts) {
   const N = AW * AH, sp = clamp(rec.sp || 1.5, 1, 2.2), many = parts.length > 1;
-  const T = parts.map(p => {   // flattened: wider, lower (tall things more so), fatter in the middle, a little tilted
-    // things lying flat (a banana, a keyboard) just spread, so their outline survives; upright ones also get squashed down
-    const M = MATS[p.mat], w = p.spr.width, h = p.spr.height, sx = 1 + (sp - 1) * .9 * M.spr, sy = sx * lerp(.42, .9, clamp((w / h - .8) / .8, 0, 1));
-    return { p, M, w, h, sx, sy, rot: (r() - .5) * (many ? .5 : .3), W: w * sx * (1 + M.bul * .7), H: h * sy, f1: r() * 6, f2: r() * 6, f3: r() * 6 };
+  const T = parts.map(p => {
+    const M = MATS[p.mat], w = p.spr.width, h = p.spr.height, spread = 1 + (sp - 1) * .9 * M.spr, t = { p, M, w, h, fp: p.fp, f1: r() * 6, f2: r() * 6, f3: r() * 6 };
+    if (p.fp) {   // the size of the footprint: how far it spread, whatever it was before
+      t.R = (21 + (sp - 1) * 19 * M.spr) * (many ? .62 : 1); t.R = Math.min(t.R, (many ? 30 : 42) / p.fp.asp);
+      t.hw = t.R * p.fp.asp;
+    } else {   // lying flat: spreads the same way in every direction; long things lie across the canvas
+      const across = h > w * 1.15, W = (across ? h : w) * spread, H = (across ? w : h) * spread;
+      t.spread = spread; t.rot = (across ? (r() < .5 ? -1 : 1) * Math.PI / 2 : 0) + (r() - .5) * .35;
+      t.k = Math.min(1.9, 82 / W, 60 / H) * (many ? .62 : 1); t.hw = W * t.k / 2;
+    }
+    return t;
   });
   // several things: squeezed into each other, staggered up and down
-  let at = 0; T.forEach((t, i) => { t.ox = at + t.W / 2; at += t.W * (i < T.length - 1 ? .55 : 1); });
-  const k = Math.min(1.9, 82 / at, (many ? 40 : 54) / Math.max(...T.map(t => t.H))), x0 = AW / 2 - at * k / 2 + (r() - .5) * 4, cy = AH / 2 + (r() - .5) * 4;
+  let at = 0; T.forEach((t, i) => { t.ox = at + t.hw; at += t.hw * 2 * (i < T.length - 1 ? .6 : 1); });
+  const x0 = AW / 2 - at / 2 + (r() - .5) * 4, cy = AH / 2 + (r() - .5) * 4, k = many ? 1 : T[0].k || 1.4;
   const col = new Array(N).fill(null), pid = new Int8Array(N).fill(-1);
   T.forEach((t, pi) => {
-    t.cx = x0 + t.ox * k; t.cy = cy + (many ? (pi & 1 ? 9 : -9) + (r() - .5) * 4 : 0);
-    const pd = pixData(t.p.spr), cs = Math.cos(t.rot), sn = Math.sin(t.rot), M = t.M;
+    t.cx = x0 + t.ox; t.cy = cy + (many ? (pi & 1 ? 9 : -9) + (r() - .5) * 4 : 0);
+    const pd = pixData(t.p.spr), M = t.M;
     let buf = new Array(N).fill(null);
-    for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) {
-      const dx = (x + .5 - t.cx) / k, dy = (y + .5 - t.cy) / k;
-      let lx = dx * cs + dy * sn, ly = -dx * sn + dy * cs;
-      // streaks: at some angles the colours are dragged further out than at others
-      const th = Math.atan2(ly * 1.6, lx), st = 1 - M.streak * Math.max(0, Math.sin(th * 13 + t.f1) * Math.sin(th * 5 + t.f2));
-      lx *= st; ly *= st;
-      const v0 = ly / t.sy + t.h / 2; if (v0 < -2 || v0 >= t.h + 2) continue;
-      const u0 = lx / (t.sx * (1 + M.bul * (1 - Math.pow(clamp(2 * v0 / t.h - 1, -1, 1), 2)))) + t.w / 2;
-      let u = u0 + M.warp * Math.sin(v0 * .45 + t.f3), v = v0 + M.warp * .7 * Math.sin(u0 * .32 + t.f1);   // a wobbly outline
-      if (M.jag) {   // crinkled: an irregular wobble (three waves that never line up)
-        u += M.jag * (Math.sin(v0 * 1.3 + t.f2) * .5 + Math.sin(v0 * 2.9 + t.f3) * .3 + Math.sin(v0 * 5.3 + t.f1) * .2);
-        v += M.jag * (Math.sin(u0 * 1.1 + t.f3) * .5 + Math.sin(u0 * 3.1 + t.f2) * .3 + Math.sin(u0 * 4.7 + t.f1) * .2);
+    if (t.fp) {   // straight down the press: top of the thing in the middle, the rest in rings out to the footprint
+      const cr = M.warp * .06, sw = (r() - .5) * .3, inner = t.p.inner, hi = inner ? .5 : 0;
+      for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) {
+        const nx = (x + .5 - t.cx) / (t.R * t.fp.asp), ny = (y + .5 - t.cy) / t.R, rho = footRho(t.fp, nx, ny); if (rho === null) continue;
+        const th = Math.atan2(ny, nx);
+        let wob = cr * (Math.sin(th * 3 + t.f1) * .6 + Math.sin(th * 5 + t.f2) * .4);
+        if (M.jag) wob += M.jag * .035 * (Math.sin(th * 11 + t.f2) * .5 + Math.sin(th * 23 + t.f3) * .3 + Math.sin(th * 37 + t.f1) * .2);
+        const rr = rho / (1 + wob); if (rr > 1) continue;
+        // streaks: at some angles the colours are dragged further out than at others
+        const tt = rr * (1 - M.streak * Math.max(0, Math.sin(th * 13 + t.f1) * Math.sin(th * 5 + t.f2)));
+        let u = 1 - Math.abs(th) / Math.PI + rr * sw; u -= Math.floor(u / 2) * 2; if (u > 1) u = 2 - u;   // left stays left
+        // burst fruit: the stem stays in the middle, then the flesh, with the skin pushed out to the rim
+        const row = !inner ? tt : tt < .1 ? tt * 2.5 : tt >= hi ? .25 + (tt - hi) / (1 - hi) * .75 : -1;
+        const c = row < 0 ? shade(inner, R((hash2(x, y) - .5) * 16)) : sampleRow(t.p.spr, clamp(row + (hash2(x, y) - .5) * .05, 0, 1), u);
+        if (c) buf[y * AW + x] = c;
       }
-      if (M.bend) v += M.bend * t.h * .12 * Math.sin(Math.PI * clamp(u0 / t.w, 0, 1)) * (t.f1 > 3 ? 1 : -1);   // bowed
-      const c = smoothAt(pd, u, v); if (c) buf[y * AW + x] = c;
+    } else {   // its own outline, spread evenly
+      const cs = Math.cos(t.rot), sn = Math.sin(t.rot);
+      for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) {
+        const dx = (x + .5 - t.cx) / t.k, dy = (y + .5 - t.cy) / t.k;
+        let lx = dx * cs + dy * sn, ly = -dx * sn + dy * cs;
+        const th = Math.atan2(ly, lx), st = 1 - M.streak * Math.max(0, Math.sin(th * 13 + t.f1) * Math.sin(th * 5 + t.f2));
+        lx *= st / t.spread; ly *= st / t.spread;
+        const u0 = lx + t.w / 2, v0 = ly + t.h / 2; if (v0 < -2 || v0 >= t.h + 2) continue;
+        let u = u0 + M.warp * Math.sin(v0 * .45 + t.f3), v = v0 + M.warp * .7 * Math.sin(u0 * .32 + t.f1);   // a wobbly outline
+        if (M.jag) {   // crinkled: an irregular wobble (three waves that never line up)
+          u += M.jag * (Math.sin(v0 * 1.3 + t.f2) * .5 + Math.sin(v0 * 2.9 + t.f3) * .3 + Math.sin(v0 * 5.3 + t.f1) * .2);
+          v += M.jag * (Math.sin(u0 * 1.1 + t.f3) * .5 + Math.sin(u0 * 3.1 + t.f2) * .3 + Math.sin(u0 * 4.7 + t.f1) * .2);
+        }
+        const c = smoothAt(pd, u, v); if (c) buf[y * AW + x] = c;
+      }
     }
-    if (M.crease) creaseBuf(buf, r, M.crease + Math.floor(r() * 2));
+    if (M.crease) creaseBuf(buf, r, M.crease + Math.floor(r() * 2), t.cx, t.cy);
     if (M.dents) for (let q = 0; q < M.dents; q++) {   // round dents: shadow on the top-left, light on the bottom-right
       const pts = []; for (let i = 0; i < N; i++) if (buf[i]) pts.push(i);
       if (!pts.length) break;
@@ -680,7 +725,7 @@ function shapeArt(G, rec, r, parts) {
     rin: () => { const i = inner.length ? inner[Math.floor(r() * inner.length)] : rim[0] || 0; return [i % AW, i / AW | 0]; },
     redge(d0, d1, pi) {   // a spot d0..d1 pixels outside the rim (of part pi, if given), plus the outward direction
       const list = pi === undefined ? rim : rim.filter(i => fid[i] === pi), i = (list.length ? list : rim)[Math.floor(r() * (list.length || rim.length))] || 0, t = T[fid[i]] || T[0];
-      const x = i % AW, y = i / AW | 0, a = Math.atan2(y - t.cy, (x - t.cx) * .8), d = d0 + r() * (d1 - d0);
+      const x = i % AW, y = i / AW | 0, a = Math.atan2(y - t.cy, x - t.cx), d = d0 + r() * (d1 - d0);
       return [R(x + Math.cos(a) * d), R(y + Math.sin(a) * d), Math.cos(a), Math.sin(a)];
     },
   };
@@ -821,12 +866,12 @@ function tone(f, d, type, v, f2, delay) {
     o.connect(gn); gn.connect(AC.destination); o.start(t); o.stop(t + d + .03);
   } catch (e) {}
 }
-function noise(d, v, freq, delay, ft) {
+function noise(d, v, freq, delay, ft, q) {
   if (!AC || muted) return;
   try {
     if (!NB) { NB = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate); const a = NB.getChannelData(0); for (let i = 0; i < a.length; i++) a[i] = Math.random() * 2 - 1; }
     const t = AC.currentTime + (delay || 0), s = AC.createBufferSource(), fl = AC.createBiquadFilter(), gn = AC.createGain();
-    s.buffer = NB; fl.type = ft || 'lowpass'; fl.frequency.value = freq || 1000;
+    s.buffer = NB; fl.type = ft || 'lowpass'; fl.frequency.value = freq || 1000; if (q) fl.Q.value = q;
     gn.gain.value = 0; gn.gain.setValueAtTime(.0001, t); gn.gain.linearRampToValueAtTime(v || .1, t + .004); gn.gain.exponentialRampToValueAtTime(.0001, t + d);
     s.connect(fl); fl.connect(gn); gn.connect(AC.destination); s.start(t, Math.random() * Math.max(0, 1.9 - d)); s.stop(t + d + .03);
   } catch (e) {}
@@ -867,6 +912,90 @@ const SFX = {
   coin() { for (let i = 0; i < 3; i++) { tone(1319, .07, 'square', .03, 0, i * .09); tone(1760, .1, 'square', .03, 0, i * .09 + .05); } },
   gavel() { tone(330, .08, 'square', .06, 200); noise(.06, .14, 1500, 0, 'bandpass'); tone(988, .08, 'square', .035, 0, .12); tone(1319, .16, 'square', .035, 0, .2); },
 };
+// ---- what things sound like, by what they are made of (MAT). Struck metal and glass ring at partials that are not
+// whole multiples, wood knocks and dies fast, wet things gloop downward, soft things are mostly air, rubber squeaks.
+// contact: the head touches it; strain: while the pressure builds; crack: a hard thing starts to fail; brk: it gives;
+// give: every fifth of its height lost. pm: pitch (bigger things sound lower).
+function ringM(f, parts, d, v, delay) { parts.forEach((m, i) => tone(f * m, d / (1 + i * .5), 'sine', v / (1 + i * .7), 0, delay)); }
+function groan(f, d, v, res, delay) {   // a sawtooth through a narrow resonance, its pitch wandering: something big under load
+  if (!AC || muted) return;
+  try {
+    const t = AC.currentTime + (delay || 0), o = AC.createOscillator(), fl = AC.createBiquadFilter(), gn = AC.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(f, t); o.frequency.linearRampToValueAtTime(f * (.85 + Math.random() * .3), t + d * .5); o.frequency.linearRampToValueAtTime(f * (.8 + Math.random() * .4), t + d);
+    fl.type = 'bandpass'; fl.frequency.value = res; fl.Q.value = 6;
+    gn.gain.value = 0; gn.gain.setValueAtTime(.0001, t); gn.gain.linearRampToValueAtTime(v, t + d * .25); gn.gain.exponentialRampToValueAtTime(.0001, t + d);
+    o.connect(fl); fl.connect(gn); gn.connect(AC.destination); o.start(t); o.stop(t + d + .03);
+  } catch (e) {}
+}
+let strainNext = 0;
+const strainGap = d => { if (!AC || AC.currentTime < strainNext) return false; strainNext = AC.currentTime + d; return true; };
+const MS = {
+  crumple: {   // thin shells: sheet metal, plastic, card
+    contact(pm) { ringM(850 * pm, [1, 2.3, 3.9], .12, .05); noise(.05, .1, 1800, 0, 'bandpass'); tone(150 * pm, .08, 'sine', .08, 80); },
+    strain(p) { noise(.03, .012 + Math.min(p, 12) * .002, 2600 + Math.random() * 1800, 0, 'bandpass', 3); if (Math.random() < .3) tone(3000 + Math.random() * 1500, .03, 'sine', .008); },
+    crack(st, pm) { ringM(520 * pm, [1, 2.1], .12, .04); noise(.04, .06, 1200, 0, 'bandpass'); },
+    give(n, pm) { for (let i = 0; i < 4; i++) noise(.04, .085, 1500 + Math.random() * 2500, i * .03 + Math.random() * .01, 'bandpass', 2); tone(130 * pm, .1, 'sine', .1, 70); tone(700 * pm, .06, 'sine', .045, 420); },
+    brk(pm) { noise(.14, .16, 1400, 0, 'bandpass', .8); tone(110 * pm, .25, 'sine', .14, 50); tone(720 * pm, .12, 'triangle', .05, 400); for (let i = 0; i < 6; i++) noise(.04, .07, 2000 + Math.random() * 2500, .03 + i * .04, 'bandpass', 2); ringM(1100 * pm, [1, 2.7], .25, .02, .05); },
+  },
+  dense: {   // solid metal and heavy blocks
+    contact(pm) { ringM(300 * pm, [1, 2.76, 5.4], .3, .06); noise(.05, .12, 1500, 0, 'bandpass'); tone(90 * pm, .12, 'sine', .1, 60); },
+    strain(p, pm) { if (strainGap(.2)) groan(58 * pm, .22, .22, 520); },
+    crack(st, pm) { ringM(420 * pm, [1, 2.76, 5.4], .2, .04); },
+    give(n, pm) { groan(48 * pm, .35, .3, 420); ringM(240 * pm, [1, 2.76], .35, .045); tone(80 * pm, .15, 'sine', .09, 50); },
+    brk(pm) { ringM(200 * pm, [1, 2.76, 5.4, 8.9], .7, .065); noise(.2, .13, 1200); tone(70 * pm, .35, 'sine', .16, 40); tone(600 * pm, .15, 'triangle', .05, 300); },
+  },
+  brittle: {   // china, glass, stone
+    contact(pm) { ringM(1500 * pm, [1, 1.9, 3.1], .06, .04); noise(.02, .09, 3500, 0, 'bandpass', 1.5); tone(260 * pm, .05, 'sine', .05, 180); },
+    strain() { if (Math.random() < .35) { tone(3200 + Math.random() * 1800, .02, 'sine', .012); noise(.015, .02, 5000, 0, 'highpass'); } },
+    crack() { noise(.035, .12, 3200, 0, 'bandpass', 1.2); tone(2600 + Math.random() * 1400, .04, 'triangle', .03); noise(.03, .06, 2200, .03, 'bandpass', 2); },
+    give(n, pm) { for (let i = 0; i < 5; i++) noise(.03, .1, 1400 + Math.random() * 2800, i * .025, 'bandpass', 2); tone(150 * pm, .07, 'sine', .06, 90); },
+    brk(pm) {
+      noise(.06, .11, 2600, 0, 'bandpass', .8); noise(.3, .06, 3400, .02, 'highpass'); tone(160 * pm, .1, 'sine', .09, 80); tone(800 * pm, .06, 'sine', .04);
+      for (let i = 0; i < 10; i++) tone(1800 + Math.random() * 3200, .07 + Math.random() * .1, 'sine', .018 + Math.random() * .012, 0, .03 + i * .035 + Math.random() * .02);
+      noise(.4, .04, 5000, .1, 'highpass');
+    },
+  },
+  wood: {
+    contact(pm) { tone(240 * pm, .07, 'triangle', .09, 170); tone(620 * pm, .05, 'sine', .05); tone(1150 * pm, .03, 'sine', .03); noise(.02, .07, 1800, 0, 'bandpass'); },
+    strain(p, pm) { if (strainGap(.18)) groan(95 * pm + Math.random() * 30, .16, .2, 900 + Math.random() * 500); },
+    crack(st, pm) { noise(.05, .14, 1900, 0, 'bandpass', 1); tone(420 * pm, .05, 'triangle', .05, 260); },
+    give(n, pm) { for (let i = 0; i < 4; i++) noise(.035, .1, 1100 + Math.random() * 1800, i * .04 + Math.random() * .015, 'bandpass', 1.5); tone(200 * pm, .06, 'triangle', .07, 130); },
+    brk(pm) { noise(.07, .22, 2200, 0, 'bandpass', .8); tone(140 * pm, .18, 'sine', .13, 70); tone(520 * pm, .09, 'triangle', .06, 300); for (let i = 0; i < 6; i++) noise(.05, .09, 900 + Math.random() * 2200, .05 + i * .045, 'bandpass', 1.5); },
+  },
+  juicy: {
+    contact() { tone(210, .09, 'sine', .1, 120); tone(760, .05, 'sine', .06, 480); noise(.05, .07, 900, 0, 'bandpass'); },
+    strain(p) { if (strainGap(.12)) tone(220 + Math.random() * 260, .05, 'sine', .018 + Math.min(p, 6) * .002, 420 + Math.random() * 300); },
+    crack() { noise(.04, .08, 1500, 0, 'bandpass', 1.5); },
+    give() { noise(.2, .12, 1400, 0, 'bandpass', 1.2); noise(.14, .08, 600, .06, 'bandpass', 1.2); tone(340, .16, 'sine', .07, 90); for (let i = 0; i < 3; i++) tone(260 + Math.random() * 300, .04, 'sine', .035, 520 + Math.random() * 400, .03 + i * .05); },
+    brk() { noise(.15, .16, 1000, 0, 'bandpass', .9); tone(180, .2, 'sine', .1, 60); tone(760, .08, 'sine', .05, 300); for (let i = 0; i < 4; i++) tone(240 + Math.random() * 400, .05, 'sine', .04, 600 + Math.random() * 400, .04 + i * .05); },
+  },
+  plush: {   // stuffing and dough: mostly air
+    contact(pm) { noise(.1, .1, 500); tone(130 * pm, .08, 'sine', .07, 90); tone(720, .05, 'sine', .045, 520); },
+    strain(p) { noise(.05, .008 + Math.min(p, 6) * .001, 3000, 0, 'bandpass', .8); },
+    crack() {},
+    give() { noise(.22, .075, 800, 0, 'bandpass', .7); noise(.12, .02, 3000, .04, 'highpass'); },
+    brk() { noise(.3, .1, 800, 0, 'bandpass', .7); noise(.16, .03, 3000, .04, 'highpass'); },
+  },
+  clay: {   // soap, wax, soft gold
+    contact(pm) { tone(170 * pm, .09, 'sine', .1, 110); noise(.06, .1, 900, 0, 'bandpass', 1.2); tone(760, .05, 'sine', .04, 520); },
+    strain(p) { noise(.05, .01 + Math.min(p, 6) * .002, 500 + Math.random() * 300, 0, 'bandpass', 2); },
+    crack() { noise(.03, .08, 2400, 0, 'bandpass', 2); },
+    give(n, pm) { noise(.14, .12, 850, 0, 'bandpass', 1.2); tone(240 * pm, .12, 'sine', .06, 110); noise(.02, .05, 2400, .05, 'bandpass', 2); },
+    brk(pm) { noise(.18, .16, 850, 0, 'bandpass', 1.2); tone(200 * pm, .14, 'sine', .08, 90); },
+  },
+  rubber: {
+    contact(pm) { tone(190 * pm, .1, 'sine', .1, 300); tone(760, .05, 'triangle', .03); },
+    strain(p) { if (strainGap(.14)) tone(360 + Math.min(p, 12) * 90, .1, 'sine', .016, 420 + Math.min(p, 12) * 100); },
+    crack() {},
+    give() { tone(520, .1, 'sine', .05, 760); },
+    brk(pm) { noise(.1, .2, 2400, 0, 'bandpass', .8); tone(1000 * pm, .08, 'square', .03, 240); tone(180, .12, 'sine', .1, 70); noise(.16, .05, 900, .06, 'bandpass'); },
+  },
+};
+const pmOf = it => clamp(1.3 - Math.sqrt(NEED[it.kind] / 40) * .7, .6, 1.3);
+function matGive(it) {   // a sound every fifth of its height lost
+  const n = Math.floor((1 - it.s) * 5.5);
+  if (n > (it.giveN || 0) && !it.popped) { it.giveN = n; MS[it.d.mat].give(n, pmOf(it)); }
+}
 // ---- background music: a small jazzy loop for the cat's studio (16 bars, ~38 s), scheduled a moment ahead on its own
 // bus. The bus is quieter than the sound effects and lifts 1 kHz so it still sounds full on a phone speaker; low notes
 // carry a short overtone in the 700-1500 Hz range for the same reason (WORKFLOW 2).
@@ -1030,7 +1159,7 @@ function drawSquash(c, cx, by, s, wm, base) {
 }
 // ---- crushing by material (side view): each thing gives the way it really would, not like rubber.
 // juicy / plush / clay bulge out (juicy ones tear at the sides, clay cracks at the rim); crumple folds into pleats one
-// section at a time, the sections above sliding a little sideways; dense bends; brittle and wood stay rigid until they
+// section at a time; dense bulges a little; the push is straight down, so everything gives evenly to both sides. Brittle and wood stay rigid until they
 // break, then the pieces collapse into a pile (wood in long splinters along the grain). rubber bulges, and once popped
 // lies as a wrinkled skin. Drawn per pixel into a small canvas per thing, only when its shape changes.
 const SRCD = new Map();
@@ -1045,8 +1174,7 @@ function crushView(it, s) {
     for (let k = 0, nb = 4 + Math.floor(r() * 3); k < nb - 1; k++) cuts.push(R(h * (.12 + .76 * r())));
     cuts.push(h); cuts.sort((a, b) => a - b);
     C.bands = [];
-    for (let k = 0; k < cuts.length - 1; k++) if (cuts[k + 1] - cuts[k] >= 2) C.bands.push({ v0: cuts[k], v1: cuts[k + 1], ord: r(), np: 1 + Math.floor(r() * 2), dir: r() < .5 ? -1 : 1 });
-    C.bend = r() < .5 ? -1 : 1; C.f = r() * 6;
+    for (let k = 0; k < cuts.length - 1; k++) if (cuts[k + 1] - cuts[k] >= 2) C.bands.push({ v0: cuts[k], v1: cuts[k + 1], ord: r(), np: 1 + Math.floor(r() * 2) });
   }
   const key = s.toFixed(3) + (it.broken ? 'b' : '') + (it.popped ? 'p' : '');
   if (C.key === key) return C.cv;
@@ -1079,7 +1207,7 @@ function crushView(it, s) {
     const e = clamp((1 - s) / .8, 0, 1), K = mat === 'wood' ? .7 : 1;
     for (const ch of C.ch) {
       // the pile spreads in proportion (no gap opens in the middle); higher pieces fall further out
-      const r2 = Math.max(s, .5), slide = (ch.xc * .45 + ch.dir * ch.yc * .12 + (ch.jit - .5) * 3) * e * K;
+      const r2 = Math.max(s, .5), slide = (ch.xc * .5 + ch.dir * ch.yc * .15 + (ch.jit - .5) * 1.5) * e * K;
       let yc = ch.yc * s; const top = yc + (ch.top - ch.yc) * r2; if (top > Hc - 1) yc -= top - (Hc - 1);
       for (const p of ch.px) {
         const u = p % w, v = p / w | 0, yb = h - 1 - v, id = C.cid[p];
@@ -1091,25 +1219,25 @@ function crushView(it, s) {
     const qmin = .12, B = C.bands.slice().sort((a, b) => a.ord - b.ord);
     let L = h * (1 - s);
     for (const b of B) { const bh = b.v1 - b.v0, loss = Math.min(L, bh * (1 - qmin)); L -= loss; b.q = 1 - loss / bh; b.c = (1 - b.q) / (1 - qmin); }
-    let y0 = 0, sh = 0;
+    let y0 = 0;
     for (let k = C.bands.length - 1; k >= 0; k--) {   // from the bottom up
       const b = C.bands[k], bh = b.v1 - b.v0, hb = bh * b.q, n = Math.max(1, R(y0 + hb) - R(y0));
       for (let j = 0; j < n; j++) {
         const np = Math.max(.5, Math.min(b.np, n / 3)), f = (j + .5) / n, v = clamp(Math.floor(b.v1 - f * bh), 0, h - 1), wave = Math.abs(Math.sin(Math.PI * f * np));   // a pleat needs a few rows
         const F = 1 + b.c * (.1 + .3 * wave) * Math.min(1, 24 / w) * (1 + (hash2(v, (it.seed | 0) & 1023) - .5) * .2);   // pleats stick out a few pixels, wide or narrow
-        row(bot - R(y0) - j, v, F, sh + b.dir * b.c * 3 * f, 1 + b.c * .3 * Math.cos(2 * Math.PI * f * np));
+        row(bot - R(y0) - j, v, F, 0, 1 + b.c * .3 * Math.cos(2 * Math.PI * f * np));
       }
-      y0 += hb; sh += b.dir * b.c * 3;
+      y0 += hb;
     }
-  } else {   // a continuous squeeze: bulge (juicy, plush, clay, rubber) or a bend (dense)
-    const dense = mat === 'dense', A = dense ? .25 * (1 - s) : it.d.wmax(it, s) - 1, b = dense ? .3 : it.d.base;
+  } else {   // a continuous squeeze: bulges out on both sides (solid metal only a little)
+    const dense = mat === 'dense', A = dense ? .3 * (1 - s) : it.d.wmax(it, s) - 1, b = dense ? .3 : it.d.base;
     const rag = mat === 'juicy' ? .3 * clamp((.85 - s) / .5, 0, 1) : 0, clay = mat === 'clay' && s < .75;
     for (let j = 0; j < Hc; j++) {
       const t = (j + .5) / Hc, v = Math.min(h - 1, Math.floor(t * h));
       let F = 1 + A * (b + (1 - b) * Math.sin(Math.PI * t));
       if (rag) F *= 1 + (hash2(v, (it.seed | 0) & 1023) - .5) * rag;   // torn, uneven sides
-      const shift = dense ? C.bend * (1 - s) * w * .16 * Math.sin(Math.PI * t) : 0, dent = dense && t < .1 && s < .8 ? .8 : 1;
-      row(bot - Hc + 1 + j, v, F, shift, dent, clay ? (u, k) => Math.abs(u - w / 2) > w * .36 && ((v >> 1) + (u >> 2)) % 3 === 0 ? k * .6 : k : null);
+      const dent = dense && t < .1 && s < .8 ? .8 : 1;
+      row(bot - Hc + 1 + j, v, F, 0, dent, clay ? (u, k) => Math.abs(u - w / 2) > w * .36 && ((v >> 1) + (u >> 2)) % 3 === 0 ? k * .6 : k : null);
     }
   }
   C.x.putImageData(C.img, 0, 0);
@@ -1624,7 +1752,9 @@ const MORE = [
 ];
 // ---- effects the descriptions can use
 function say(it, f) { if (f.w) { it.fxSide = -(it.fxSide || 1); pop(f.w, it.x + it.fxSide * 32, BED - it.spr.height * it.s - 6, f.wc || '#ffffff', 12, .8); } }
-function snd(f, def) { const s = f.sfx === undefined ? def : f.sfx; if (s) SFX[s](); }
+let sndHush = null;   // while its material is sounding the moment, the generic versions of it stay quiet
+const HUSH_ALL = { shatter: 1, pop: 1, clang: 1, crunch: 1, boom: 1, squish: 1 }, HUSH_WET = { squish: 1 };
+function snd(f, def) { const s = f.sfx === undefined ? def : f.sfx; if (s && !(sndHush && sndHush[s])) SFX[s](); }
 function burst(it, n, cols, kind) {
   const cy = BED - it.spr.height * it.s / 2;
   for (let i = 0; i < n; i++) { const a = rand(0, Math.PI * 2), v = rand(70, 200); addP({ kind, x: it.x + Math.cos(a) * it.spr.width * .3, y: cy + Math.sin(a) * it.spr.height * .25 * it.s, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, g: 400, col: pick(cols), sz: pick([1, 2, 2]), life: 3 }); }
@@ -1649,7 +1779,7 @@ const FX = {
   steam(it, f) { const y = BED - it.spr.height * it.s; for (let i = 0; i < 10; i++) { const sd = i & 1 ? 1 : -1; addP({ kind: 'dust', x: it.x + sd * it.spr.width * .4, y: y + rand(0, 10), vx: sd * rand(20, 50), vy: -rand(10, 40), g: -40, col: '#e6ecf5', sz: 2, life: .8 }); } snd(f, 'hiss'); say(it, f); },
   word(it, f) { say(it, f); },
 };
-const runFx = (it, list) => (list || []).forEach(f => FX[f.t](it, f));
+const runFx = (it, list, hush) => { sndHush = hush || null; (list || []).forEach(f => FX[f.t](it, f)); sndHush = null; };
 // extra touches painted on top of an outline painting (X: the canvas, the random stream and spots inside / outside the rim)
 const ARTX = {
   seeds(X, A) { for (let i = 0; i < 26; i++) { const [x, y] = X.rin(); X.G.rect(x, y, 2, 1, A.seedC); } },
@@ -1688,19 +1818,20 @@ function genDef(S) {
       if (S.type === 'elastic') {
         if (it.popped) { if (it.s <= .2) crushed(); return; }
         it.strain = clamp(P / S.popP, 0, 1);
-        if (P >= S.popP) { it.popped = true; it.strain = 0; freeze = .1; catWow = 1.2; it.flash = .1; runFx(it, S.brk); }
+        if (P >= S.popP) { it.popped = true; it.strain = 0; freeze = .1; catWow = 1.2; it.flash = .1; MS[MAT[S.k]].brk(pmOf(it)); runFx(it, S.brk, HUSH_ALL); }
+        else matGive(it);
         return;
       }
       if (S.hard && !it.broken) {
         const f = P / S.breakP, st = f >= .85 ? 3 : f >= .6 ? 2 : f >= .3 ? 1 : 0;
         it.strain = clamp(f, 0, 1);
-        if (st > it.stage) { it.stage = st; SFX.crack(); vib(8); if (S.pre) runFx(it, S.pre[st - 1]); }
-        if (f >= 1) { it.broken = true; it.s = it.sMin = 1; it.contact = false; it.strain = 0; P = 0; freeze = .12; catWow = 1.2; it.flash = .1; runFx(it, S.brk); }
+        if (st > it.stage) { it.stage = st; MS[MAT[S.k]].crack(st, pmOf(it)); vib(8); if (S.pre) runFx(it, S.pre[st - 1], HUSH_ALL); }
+        if (f >= 1) { it.broken = true; it.s = it.sMin = 1; it.contact = false; it.strain = 0; P = 0; freeze = .12; catWow = 1.2; it.flash = .1; MS[MAT[S.k]].brk(pmOf(it)); runFx(it, S.brk, HUSH_ALL); }
         return;
       }
       const f = clamp((1 - it.s) / (1 - sEnd), 0, 1);
-      while (S.fx && it.fi < S.fx.length && f >= S.fx[it.fi][0]) { runFx(it, S.fx[it.fi].slice(1)); it.fi++; }
-      it.strain = 0;
+      while (S.fx && it.fi < S.fx.length && f >= S.fx[it.fi][0]) { runFx(it, S.fx[it.fi].slice(1), HUSH_WET); it.fi++; }
+      it.strain = 0; matGive(it);
       if (it.s <= sEnd) crushed();
     },
     over(it, cx, by, s) {
@@ -2057,7 +2188,7 @@ for (const S of MORE) {
   DEF[S.k] = genDef(S);
   const A = S.art;
   ARTS[S.k] = {
-    part: { spr: SPR[S.k], mat: MAT[S.k] || 'juicy', inner: A.inner, splat: A.splat, big: A.big, extra: A.extra, A },
+    part: { spr: SPR[S.k], mat: MAT[S.k] || 'juicy', fp: FOOT[S.k], inner: A.inner, splat: A.splat, big: A.big, extra: A.extra, A },
     medium: A.medium, titles: A.titles, quotes: A.quotes,
   };
 }
@@ -2136,7 +2267,8 @@ function nextGroup(ks) {
 const members = () => grp ? grp.ms : it ? [it] : [];
 const itemTop = () => BED - it.hy - it.spr.height * it.s;
 function contactHit(v) {
-  SFX.clunk(); vib(12); it.flash = .08; everHeld = true;
+  if (MS[it.d.mat]) MS[it.d.mat].contact(pmOf(it)); else SFX.clunk();
+  vib(12); it.flash = .08; everHeld = true;
   if (v > 200) freeze = .035;
   const hw = it.spr.width * .4 * it.d.wmax(it, it.s);
   for (const sd of [-1, 1]) for (let i = 0; i < 4; i++) addP({ kind: 'dust', x: it.x + sd * rand(4, hw), y: ram.y + 1, vx: sd * rand(20, 70), vy: rand(-30, -5), g: 0, col: '#cdd6e4', life: rand(.3, .55) });
@@ -2250,7 +2382,7 @@ function pressUpdate(dt) {
   if (it.d.elastic) it.s += (tgt - it.s) * Math.min(1, dt * 18);
   else { it.sMin = Math.min(it.sMin, tgt); it.s += (it.sMin - it.s) * Math.min(1, dt * 16); }
   ram.y = itemTop();
-  if (held) { creakT += dt * (1.5 + Math.min(P, 12) * .5); if (creakT > 1) { creakT = 0; SFX.creak(P); } }
+  if (held) { creakT += dt * (1.5 + Math.min(P, 12) * .5); if (creakT > 1) { creakT = 0; if (MS[it.d.mat]) MS[it.d.mat].strain(P, pmOf(it)); else SFX.creak(P); } }
   it.d.tick(it, dt);
   if (it.heavy && !it.broke && held && P >= tons() - .01 && (it.stuck = (it.stuck || 0) + dt) > .6) tooHeavy();
 }
@@ -2280,7 +2412,10 @@ function groupPress(dt) {
   for (const m of ms) { const tg = Math.min(m.done ? m.s : 1, plate / m.spr.height); m.s += (tg - m.s) * Math.min(1, dt * 16); }
   ram.y = BED - Math.max(...ms.map(m => m.spr.height * m.s));
   P = Math.max(...ms.map(m => m.done ? 0 : m.P));   // the gauge shows the hardest push
-  if (held) { creakT += dt * (1.5 + Math.min(P, 12) * .5); if (creakT > 1) { creakT = 0; SFX.creak(P); } }
+  if (held) {
+    creakT += dt * (1.5 + Math.min(P, 12) * .5);
+    if (creakT > 1) { creakT = 0; const m = ms.find(q => !q.done && q.contact) || ms[0]; MS[m.d.mat].strain(P, pmOf(m)); }
+  }
   for (const m of ms) if (!m.done && phase === 'press') { it = m; P = m.P; m.d.tick(m, dt); m.P = P; }
   it = ms[0]; P = Math.max(...ms.map(m => m.done ? 0 : m.P));
 }
@@ -2815,7 +2950,7 @@ const ALLTEXT = [...new Set((SCRIPT_TEXT.match(/[^\x00-\x7f]/g) || []))].join(''
 try { if (document.fonts && document.fonts.load) document.fonts.load('12px "Fusion Pixel"', ALLTEXT).catch(() => {}); } catch (e) {}
 
 // ============================================================ AIWANNA: cloud save + leaderboards (only inside the platform player)
-const GAME_ID = 'dcd23258-b70b-4fb8-b43b-eb8b37364b7b', GAME_VERSION = '1.2.0';
+const GAME_ID = 'dcd23258-b70b-4fb8-b43b-eb8b37364b7b', GAME_VERSION = '1.3.0';
 const cloud = { ready: !ON_PLATFORM, sdk: null, timer: 0, error: '' };
 // the whole save as plain JSON: collection, money, upgrades, gallery records, best price
 function exportState() { return { seen: { ...seen }, total, fish, up: { ...up }, gal: GAL.map(r => ({ ...r })), top: topPrice }; }
