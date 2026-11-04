@@ -548,17 +548,15 @@ const MATS = {   // by what the thing is made of (MAT). ooze: how far the inside
 // what was pressed looks like this from above; anything not listed lies flat and keeps its own outline
 const FOOT = {};
 Object.entries({
-  'round 1': 'tomato orange pumpkin coconut yarn berry pineapple pudding burger icecream broccoli jelly balloon soccer basketball bowling meteor deskglobe statue bulb teapot bowl vase flowerpot honey helmet knight hydrant coffee candle ketchup thermos extinguisher drum fishcan lamp clock cooker ufo fan',
-  'round 1.35': 'lemon melon piggy bread marsh',
+  'round 1': 'tomato orange pumpkin coconut yarn berry pineapple pudding burger icecream broccoli jelly balloon soccer basketball bowling meteor deskglobe bulb bowl vase flowerpot honey helmet knight coffee candle ketchup thermos drum fishcan cooker ufo',
+  'round 1.35': 'lemon melon bread marsh onigiri',
   'square 1.15': 'box ice lego crayon toaster chest typewriter',
   'square 1.9': 'car bus',
   'ring 1': 'donut tire',
-  'tri 1': 'onigiri',
 }).forEach(([f, ks]) => { const [shape, asp] = f.split(' '); ks.split(' ').forEach(k => FOOT[k] = { shape, asp: +asp }); });
 function footRho(fp, nx, ny) {   // 0 in the middle, 1 on the outline (null: the hole of a ring)
   if (fp.shape === 'square') return Math.pow(nx ** 4 + ny ** 4, .25);
   if (fp.shape === 'ring') { const d = Math.hypot(nx, ny); return d < .32 ? null : (d - .32) / .68; }
-  if (fp.shape === 'tri') return Math.max(ny * 1.75, (nx * .87 - ny * .5) * 1.75, (-nx * .87 - ny * .5) * 1.75) * .9 + Math.hypot(nx, ny) * .1;
   return Math.hypot(nx, ny);
 }
 function smoothAt(pd, u, v) {   // sprite colour at a fractional spot; the outline is smoothed (bilinear coverage) rather than stepped
@@ -999,7 +997,7 @@ function matGive(it) {   // a sound every fifth of its height lost
 // ---- background music: a small jazzy loop for the cat's studio (16 bars, ~38 s), scheduled a moment ahead on its own
 // bus. The bus is quieter than the sound effects and lifts 1 kHz so it still sounds full on a phone speaker; low notes
 // carry a short overtone in the 700-1500 Hz range for the same reason (WORKFLOW 2).
-const MUS = { bus: null, next: 0, step: 0, timer: 0 };
+const MUS = { bus: null, next: 0, step: 0, timer: 0, sp: .15 };   // sp: seconds per step
 const MIDI = n => 440 * Math.pow(2, (n - 69) / 12);
 const CHORD = { C: [48, 52, 55, 59], Am: [45, 48, 52, 55], Dm: [50, 53, 57, 60], G: [43, 47, 50, 53], F: [41, 45, 48, 52], Em: [40, 43, 47, 50] };
 const SONG = ['C', 'Am', 'Dm', 'G', 'C', 'Am', 'Dm', 'G', 'F', 'Em', 'Dm', 'G', 'F', 'Em', 'Dm', 'G'];
@@ -1047,7 +1045,7 @@ function musicStart() {
   MUS.timer = setInterval(() => {
     if (!AC || AC.state !== 'running') return;
     if (MUS.next < AC.currentTime) MUS.next = AC.currentTime + .05;   // back from the background: don't play a backlog
-    while (MUS.next < AC.currentTime + .3) { try { musicStep(MUS.step, MUS.next); } catch (e) {} MUS.step++; MUS.next += .15; }
+    while (MUS.next < AC.currentTime + .3) { try { musicStep(MUS.step, MUS.next); } catch (e) {} MUS.step++; MUS.next += MUS.sp; }
   }, 60);
 }
 function musicVolume() { if (MUS.bus) try { MUS.bus.gain.setTargetAtTime(muted ? 0 : .5, AC.currentTime, .08); } catch (e) {} }
@@ -1593,6 +1591,23 @@ const CURVE = {
 const P5 = c => [shade(c, -50), shade(c, -25), c, shade(c, 25), shade(c, 50)];
 const LE = (G, cx, cy, rx, ry, c) => G.ell(cx, cy, rx, ry, lit(P5(c), cx, cy, rx, ry));
 const cyl = (G, x0, x1) => G.map((x, y, c) => { const t = (x - x0) / (x1 - x0); return t < .2 ? shade(c, 24) : t > .8 ? shade(c, -30) : t > .62 ? shade(c, -12) : c; });
+// a filled polygon, and a thick smooth stroke through points (radius r0 -> r1): for handles, spouts, soles, anything curved
+const polyG = (G, pts, c) => {
+  const y0 = Math.floor(Math.min(...pts.map(p => p[1]))), y1 = Math.ceil(Math.max(...pts.map(p => p[1])));
+  for (let y = y0; y <= y1; y++) {
+    const xs = [], py = y + .5;
+    pts.forEach((a, i) => { const b = pts[(i + 1) % pts.length]; if ((a[1] <= py) !== (b[1] <= py)) xs.push(a[0] + (py - a[1]) / (b[1] - a[1]) * (b[0] - a[0])); });
+    xs.sort((p, q) => p - q);
+    for (let k = 0; k + 1 < xs.length; k += 2) for (let x = Math.ceil(xs[k] - .5); x <= Math.floor(xs[k + 1] - .5); x++) G.set(x, y, typeof c === 'function' ? c(x, y) : c);
+  }
+};
+const tube = (G, pts, r0, r1, c) => {
+  const P = i => pts[clamp(i, 0, pts.length - 1)], n = pts.length - 1, cr = (a, b, d, e, f) => .5 * (2 * b + (d - a) * f + (2 * a - 5 * b + 4 * d - e) * f * f + (3 * b - a - 3 * d + e) * f * f * f);
+  for (let q = 0; q <= n * 24; q++) {
+    const u = q / 24, i = Math.min(Math.floor(u), n - 1), f = u - i, A = P(i - 1), B = P(i), C = P(i + 1), D = P(i + 2), x = cr(A[0], B[0], C[0], D[0], f), y = cr(A[1], B[1], C[1], D[1], f), r = lerp(r0, r1, u / n);
+    for (let yy = Math.floor(y - r); yy <= Math.ceil(y + r); yy++) for (let xx = Math.floor(x - r); xx <= Math.ceil(x + r); xx++) if (Math.hypot(xx + .5 - x, yy + .5 - y) <= r) G.set(xx, yy, c);
+  }
+};
 // little pieces that fly off (they land on the belt and stay with the thing)
 const BITS = {
   coin: rows(['.YY.', 'YWYY', 'YYYY', '.YY.'], { Y: '#f2c230', W: '#fff6a0' }),
@@ -1741,7 +1756,12 @@ const MORE = [
     brk: [{ t: 'ring' }, { t: 'fling', s: ['pin'], n: 6, w: '全中！' }, { t: 'shards', c: ['#3a3a8a', '#6a5ac0', '#0a0a20'], n: 22, sfx: 'clang' }],
     art: { splat: ['#3a3a8a', '#6a5ac0'], extra: 'bits', bits: ['#ffffff', '#e04040'], medium: '树脂、十个球瓶', titles: ['全中', '十号球道', '最后一轮'], quotes: ['这次是它被击倒了。', '滚了一辈子，终于停下。', '球瓶们在远处鼓掌。'] } },
   { k: 'meteor', name: '陨石', need: 16, price: 200, hard: true, breakP: 15.5, glow: '#b070ff', crack: 'rgba(200,140,255,.95)', spread: .7, word: '来自外太空！', w: 52, h: 44,
-    draw(G) { const Rk = '#6a6070'; LE(G, 26, 25, 21, 16, Rk); LE(G, 14, 19, 10, 9, Rk); LE(G, 37, 18, 11, 9, Rk); [[18, 26, 3], [32, 30, 2.5], [38, 18, 2], [24, 16, 2]].forEach(([x, y, r]) => { G.ell(x, y, r, r * .8, '#4a4250'); G.set(x - 1, y - 1, '#3a3240'); }); gLine(G, 10, 30, 20, 22, '#b070ff', true); gLine(G, 30, 24, 40, 30, '#b070ff', true); },
+    draw(G) {   // a lump of burnt rock: lit from the top left, pocked with craters, still glowing in the cracks
+      const base = '#6a6478';
+      polyG(G, [[10, 8], [22, 3], [35, 5], [46, 12], [50, 24], [45, 35], [33, 41], [18, 40], [7, 33], [3, 20]], (x, y) => shade(base, R((26 - (x + y) * .6) * 1.1 + (hash2(x >> 1, y >> 1) - .5) * 14)));
+      [[17, 14, 4.5], [34, 12, 3], [37, 27, 5.5], [15, 30, 3.5], [26, 22, 2.2]].forEach(([x, y, r]) => { G.ell(x + .6, y + .6, r, r * .85, '#8e88a0'); G.ell(x, y, r, r * .85, '#4e4a5c'); G.ell(x + .5, y + .5, r * .55, r * .45, '#3e3a4c'); });
+      tube(G, [[23, 30], [28, 34], [26, 39]], .7, .4, '#ff9a40'); tube(G, [[42, 16], [44, 21], [47, 24]], .7, .4, '#a070e0'); tube(G, [[9, 22], [13, 22], [15, 25]], .6, .4, '#a070e0');
+    },
     brk: [{ t: 'ring' }, { t: 'shards', c: ['#6a6070', '#4a4250', '#b070ff', '#e0c0ff'], n: 30, sfx: 'boom', w: '轰隆！' }, { t: 'fling', s: ['gem'], n: 4 }],
     art: { splat: ['#b070ff', '#6a6070'], inner: '#9a50e0', extra: 'crystals', medium: '星尘、紫水晶', titles: ['天外来客', '星星的碎片', '一亿年的旅行'], quotes: ['它飞了一亿年，落在了液压机下。', '宇宙也是可以压扁的。', '里面原来是紫色的。'] } },
   { k: 'anvil', name: '铁砧', need: 16, price: 240, hard: true, breakP: 15.9, crack: 'rgba(255,200,120,.95)', spread: .7, word: '比动画片还扁！', w: 54, h: 36,
@@ -1854,7 +1874,12 @@ Object.assign(BITS, {
 MORE.push(
   // ---- 4 t
   { k: 'onigiri', name: '饭团', need: 4, price: 11, type: 'soft', spread: 1, word: '散了！', w: 40, h: 38,
-    draw(G) { G.tri(20, 3, 3, 33, 37, 33, '#f8f8f0'); G.ell(20, 25, 17, 10, '#f8f8f0'); G.rect(12, 24, 16, 12, '#1a2a2a'); [[14, 12], [22, 9], [25, 17], [9, 26], [31, 27], [18, 18]].forEach(([x, y]) => G.set(x, y, '#e0e0d4')); },
+    draw(G) {   // a rounded triangle of rice with a strip of seaweed
+      const RC = '#f8f8f0', A = [20, 8], B = [8, 29], C = [32, 29];
+      polyG(G, [A, B, C], RC); [[A, B], [B, C], [C, A]].forEach(([a, b]) => tube(G, [a, b], 5.5, 5.5, RC));
+      G.rect(13, 24, 14, 12, '#1a2a2a'); G.rect(14, 25, 12, 1, '#2e4444');
+      [[14, 13], [22, 10], [25, 17], [9, 26], [31, 27], [18, 18], [11, 21], [29, 22]].forEach(([x, y]) => { G.set(x, y, '#e0e0d4'); G.set(x + 1, y, '#e0e0d4'); });
+    },
     fx: [[.4, { t: 'fluff', c: ['#f8f8f0', '#ffffff'], n: 14, w: '噗！' }], [.8, { t: 'juice', c: ['#f8f8f0', '#1a2a2a'], n: 10 }]],
     art: { splat: ['#f8f8f0', '#1a2a2a'], extra: 'seeds', seedC: '#1a2a2a', medium: '米饭、海苔', titles: ['饭团的散步', '米粒的自由', '海苔还在'], quotes: ['每一粒米都找到了自己的位置。', '早餐被压成了晚餐。', '妈妈捏了很久的。'] } },
   { k: 'jelly', name: '果冻', need: 4, price: 12, type: 'elastic', popP: 1.2, spread: 1.2, pcol: '#5ad070', word: '化开了！', w: 36, h: 34,
@@ -1893,17 +1918,35 @@ MORE.push(
     draw(G) { G.rect(6, 6, 28, 14, '#a8e0f0'); G.ell(6, 13, 3, 7, '#a8e0f0'); G.ell(34, 13, 3, 7, '#a8e0f0'); G.rect(6, 6, 28, 2, '#d8f4ff'); G.ell(20, 13, 7, 3, '#c8ecff'); },
     fx: [[.3, { t: 'fluff', c: ['#ffffff', '#d8f4ff'], n: 24, w: '咕噜咕噜' }], [.7, { t: 'juice', c: ['#a8e0f0', '#ffffff'], n: 10 }]],
     art: { splat: ['#ffffff', '#a8e0f0'], extra: 'fluff', medium: '肥皂、泡泡', titles: ['泡泡的诞生', '干干净净', '滑倒了'], quotes: ['画面很干净，评论家很满意。', '每个泡泡都是一句话。', '洗手了吗？'] } },
-  { k: 'yarn', name: '毛线球', need: 4, price: 14, type: 'soft', spread: 1, word: '喵！', w: 38, h: 38,
-    draw(G) { LE(G, 18, 18, 15, 15, '#ff8ab0'); for (let k = 0; k < 5; k++) for (let i = 0; i < 30; i++) { const a = i / 30 * Math.PI + k * .6, x = R(18 + Math.cos(a) * (6 + k * 2)), y = R(18 + Math.sin(a) * (14 - k)); if (G.get(x, y)) G.set(x, y, '#e0608a'); } for (let i = 0; i < 6; i++) G.set(30 + i, 30 + (i & 1), '#ff8ab0'); },
+  { k: 'yarn', name: '毛线球', need: 4, price: 14, type: 'soft', spread: 1, word: '喵！', w: 40, h: 38,
+    draw(G) {   // a ball wound in crossing bands of thread, with a loose end
+      LE(G, 18, 18, 15, 15, '#ff8ab0');
+      [[-.5, '#e0608a'], [.7, '#d85080'], [2, '#ffb0cc']].forEach(([rot, col]) => {
+        for (const s of [-.65, -.35, -.05, .25, .55]) for (let u = -1; u <= 1; u += .04) {
+          const lx = u * Math.sqrt(1 - s * s) * 15, ly = s * 15 + (1 - u * u) * 2.5, x = R(18 + lx * Math.cos(rot) - ly * Math.sin(rot) - .5), y = R(18 + lx * Math.sin(rot) + ly * Math.cos(rot) - .5);
+          if (G.get(x, y)) G.set(x, y, col);
+        }
+      });
+      tube(G, [[28, 29], [32, 34], [36, 31], [38, 34]], .7, .6, '#ff8ab0');
+    },
     fx: [[.4, { t: 'fluff', c: ['#ff8ab0', '#ffb0cc'], n: 16, w: '毛线！' }], [.8, { t: 'squeak', n: 2, w: '喵——' }]],
     art: { splat: ['#ff8ab0', '#ffb0cc'], extra: 'line', lineC: ['#ff8ab0'], medium: '羊毛、猫的玩具', titles: ['猫的心头好', '解不开的结', '粉色的线团'], quotes: ['猫很生气，但评论家很满意。', '这一根线，能绕地球半圈。', '玩具变成了画。'] } },
   // ---- 6 t
   { k: 'pineapple', name: '菠萝', need: 6, price: 32, type: 'firm', spread: .9, pcol: '#ffe060', word: '酸甜！', w: 36, h: 54,
-    draw(G) { [[18, 2], [12, 6], [24, 6], [15, 4], [21, 4]].forEach(([x, y]) => G.tri(x - 3, 18, x + 3, 18, x, y, '#3aa050')); LE(G, 18, 35, 13, 17, '#f0b030'); for (let y = 21; y < 52; y += 4) for (let x = 6; x < 31; x += 4) { const xx = x + (y % 8 ? 2 : 0); if (G.get(xx, y)) { G.set(xx, y, '#b07818'); G.set(xx + 1, y + 1, '#ffd060'); } } },
+    draw(G) { [[9, 10, '#3aa050'], [27, 10, '#3aa050'], [12, 5, '#4ab860'], [24, 5, '#4ab860'], [15, 2, '#3aa050'], [21, 2, '#3aa050'], [18, 1, '#4ab860']].forEach(([x, y, c]) => tube(G, [[18 + (x - 18) * .25, 20], [18 + (x - 18) * .6, (y + 20) / 2 - 1], [x, y]], 2.4, .5, c)); LE(G, 18, 35, 13, 17, '#f0b030'); for (let y = 21; y < 52; y += 4) for (let x = 6; x < 31; x += 4) { const xx = x + (y % 8 ? 2 : 0); if (G.get(xx, y)) { G.set(xx, y, '#b07818'); G.set(xx + 1, y + 1, '#ffd060'); } } },
     fx: [[.4, { t: 'juice', c: ['#ffe060', '#fff0a0'], n: 16, w: '噗！' }], [.75, { t: 'juice', c: ['#ffe060'], n: 12, lens: 5 }]],
     art: { splat: ['#ffe060', '#fff0a0'], inner: '#ffe060', extra: 'seeds', seedC: '#c08020', medium: '菠萝、刺、夏威夷', titles: ['热带风暴', '刺头的柔情', '披萨的配角'], quotes: ['外面扎手，里面全是甜。', '它到底该不该放在披萨上？', '叶子还很精神。'] } },
-  { k: 'teapot', name: '茶壶', need: 6, price: 34, hard: true, breakP: 4.5, crack: 'rgba(60,80,140,.9)', spread: .8, pcol: '#c08040', word: '茶凉了！', w: 48, h: 38,
-    draw(G) { G.tri(34, 22, 46, 11, 40, 27, '#f4f6fa'); G.rect(2, 17, 6, 12, '#f4f6fa'); LE(G, 22, 25, 16, 12, '#f4f6fa'); G.ell(22, 13, 9, 3, '#e6ecf5'); G.ell(22, 9, 2.5, 2.5, '#3a6ad8'); for (let x = 8; x < 37; x++) if (G.get(x, 24)) { G.set(x, 24, '#3a6ad8'); if (x % 4 === 0) G.set(x, 26, '#3a6ad8'); } },
+  { k: 'teapot', name: '茶壶', need: 6, price: 34, hard: true, breakP: 4.5, crack: 'rgba(60,80,140,.9)', spread: .8, pcol: '#c08040', word: '茶凉了！', w: 50, h: 38,
+    draw(G) {   // round porcelain body, a curved spout and a hollow loop of a handle
+      const W = '#f4f6fa', BL = '#3a6ad8';
+      tube(G, [[12, 15], [5, 13], [2, 19], [4, 26], [11, 30]], 1.9, 1.9, W);
+      tube(G, [[33, 26], [38, 24], [41, 18], [46, 11]], 4.6, 1.7, W); G.ell(47, 10, 2.3, 1.2, W);
+      LE(G, 23, 23, 15, 12.5, W); G.rect(15, 34, 16, 2, '#dfe3ec');
+      G.ell(23, 12, 9.5, 3, '#e6ecf5'); G.ell(23, 10.5, 7, 2.6, W); G.ell(23, 7, 2.4, 2.4, BL); G.set(22, 6, '#a0c0f8');
+      for (let x = 8; x < 39; x++) { if (G.get(x, 31) && x % 2) G.set(x, 31, BL); if (G.get(x, 16) && x > 14 && x < 32 && x % 2) G.set(x, 16, BL); }
+      [[23, 21], [19.5, 24], [26.5, 24], [21, 27.5], [25, 27.5]].forEach(([x, y]) => G.ell(x, y, 1.7, 1.7, BL)); G.ell(23, 24.5, 1.3, 1.3, '#ffd040');
+      tube(G, [[17, 28], [13, 26], [12, 22]], .5, .5, BL); tube(G, [[29, 28], [33, 26], [34, 22]], .5, .5, BL);
+    },
     pre: [[], [{ t: 'steam', w: '咕嘟' }], []],
     brk: [{ t: 'shards', c: ['#f4f6fa', '#3a6ad8'], n: 22, w: '哐啷！' }, { t: 'juice', c: ['#c08040', '#e0b070'], n: 12, lens: 3, sfx: '' }],
     art: { splat: ['#c08040', '#3a6ad8'], extra: 'bits', bits: ['#f4f6fa', '#3a6ad8'], medium: '青花瓷、乌龙茶', titles: ['下午茶取消', '青花碎了', '最后一壶'], quotes: ['茶还没泡开，壶先开了。', '每一片都是古董。', '茶叶比壶坚强。'] } },
@@ -1911,8 +1954,19 @@ MORE.push(
     draw(G) { G.rect(33, 6, 6, 24, '#fff6e0'); for (let y = 8; y < 29; y += 2) G.rect(34, y, 5, 1, '#e0d4b8'); G.rect(4, 4, 30, 27, '#3a6ad8'); G.rect(4, 4, 4, 27, '#2a4aa8'); G.rect(12, 10, 18, 5, '#ffd040'); G.rect(14, 18, 14, 1, '#8ab0f0'); G.rect(14, 21, 10, 1, '#8ab0f0'); },
     fx: [[.3, { t: 'confetti', c: ['#fff6e0', '#ffffff'], n: 20, w: '哗啦' }], [.7, { t: 'confetti', c: ['#fff6e0', '#3a6ad8'], n: 16 }]],
     art: { splat: ['#fff6e0', '#3a6ad8'], extra: 'bits', bits: ['#ffffff', '#fff6e0'], medium: '纸、墨水、一个故事', titles: ['完结篇', '厚积薄发', '翻不开了'], quotes: ['结局是平的。', '一千页，压成一页。', '书签还夹在第三章。'] } },
-  { k: 'sneaker', name: '球鞋', need: 6, price: 30, type: 'firm', spread: .8, word: '鞋底开胶！', w: 50, h: 28,
-    draw(G) { G.rect(2, 20, 44, 5, '#ffffff'); G.rect(2, 23, 44, 2, '#d8dce8'); G.ell(26, 20, 20, 12, (x, y) => y < 21 ? '#e04848' : null); G.ell(8, 20, 7, 7, (x, y) => y < 21 ? '#e04848' : null); for (let i = 0; i < 4; i++) G.rect(18 + i * 4, 10 + i, 3, 1, '#ffffff'); for (let x = 20; x < 42; x++) G.set(x, R(17 - (x - 20) * .2), '#ffffff'); },
+  { k: 'sneaker', name: '球鞋', need: 6, price: 30, type: 'firm', spread: .8, word: '鞋底开胶！', w: 52, h: 30,
+    draw(G) {   // a low-top seen from the side, toe to the right
+      const RD = '#e04848', W = '#f4f2ec';
+      polyG(G, [[3, 23], [3, 11], [5, 7], [9, 5], [14, 6], [17, 10], [22, 10], [28, 13], [35, 16], [43, 17], [48, 19], [50, 22], [50, 23]], RD);
+      polyG(G, [[15, 7], [20, 4], [24, 9], [18, 11]], '#f0a0a0');
+      G.ell(10, 6.5, 5, 1.6, '#3a3550');
+      polyG(G, [[38, 23], [38, 17], [43, 17], [48, 19], [50, 22], [50, 23]], W); gLine(G, 38, 17, 38, 22, '#c8c4bc');
+      polyG(G, [[3, 23], [3, 13], [9, 14], [11, 23]], '#b83238');
+      tube(G, [[12, 21], [20, 20], [28, 18], [35, 19]], 1.2, .6, W);
+      for (let i = 0; i < 5; i++) { const x = 19 + i * 3.6, y = 10.5 + i * 1.5; gLine(G, x, y - 1.5, x + 3, y + 2.5, W); }
+      polyG(G, [[2, 23], [50, 23], [51, 21], [51, 25], [47, 28], [5, 28], [2, 26]], W);
+      G.rect(3, 26, 44, 1, '#c8ccd4'); for (let x = 5; x < 46; x += 4) G.rect(x, 28, 2, 1, '#8a8fa0');
+    },
     fx: [[.3, { t: 'squeak', n: 0, w: '吱！' }], [.6, { t: 'steam', w: '好臭！' }]],
     art: { splat: ['#e04848', '#ffffff'], medium: '橡胶、帆布、汗', titles: ['跑不动了', '鞋底的告白', '一只的寂寞'], quotes: ['它跑了一千公里，停在了这里。', '另一只还在鞋柜里。', '评论家捏住了鼻子。'] } },
   { k: 'phone', name: '手机', need: 6, price: 38, hard: true, breakP: 5, spread: .6, word: '碎屏了！', w: 28, h: 48,
@@ -1929,11 +1983,28 @@ MORE.push(
     fx: [[.35, { t: 'jet', c: ['#f0d060', '#e0c040'], dur: .8, w: '滋' }], [.7, { t: 'fling', s: ['fishbit'], n: 3, w: '鱼！' }]],
     art: { splat: ['#f0d060', '#a8b8c8'], extra: 'bits', bits: ['#a8b8c8', '#c8ccd8'], medium: '沙丁鱼、油、一只猫的梦想', titles: ['猫的晚餐', '罐头开了', '沙丁鱼之梦'], quotes: ['画家本猫流下了口水。', '这一幅，评论家想吃。', '鱼在画里，猫在画外。'] } },
   { k: 'soccer', name: '足球', need: 6, price: 34, type: 'elastic', popP: 4.5, spread: 1, word: '漏气了！', w: 40, h: 40,
-    draw(G) { LE(G, 20, 20, 17, 17, '#f4f6fa'); [[20, 20, 3], [11, 14, 2], [29, 14, 2], [12, 28, 2], [28, 28, 2], [20, 7, 1.6]].forEach(([x, y, r]) => G.ell(x, y, r, r, '#2a2a30')); [[20, 20, 11, 14], [20, 20, 29, 14], [20, 20, 12, 28], [20, 20, 28, 28], [11, 14, 20, 7], [29, 14, 20, 7]].forEach(([a, b, c, d]) => gLine(G, a, b, c, d, '#a5b0c6', true)); },
+    draw(G) {   // white hexagons, a black pentagon in the middle and five more around the edge
+      LE(G, 20, 20, 18, 18, '#f4f4f0');
+      const DK = '#22222c', pent = (cx, cy, r, a0) => [0, 1, 2, 3, 4].map(k => [cx + Math.cos(a0 + k * 1.2566) * r, cy + Math.sin(a0 + k * 1.2566) * r]), clip = (x, y) => G.get(x, y) ? DK : null;
+      const mid = pent(20, 20, 5.6, -1.5708);
+      mid.forEach(([x, y], k) => {
+        const a = -1.5708 + k * 1.2566, ox = 20 + Math.cos(a) * 14, oy = 20 + Math.sin(a) * 14;
+        gLine(G, x, y, ox, oy, '#8a8a98', true);
+        const a2 = a + .6283; gLine(G, ox, oy, 20 + Math.cos(a2) * 15, 20 + Math.sin(a2) * 15, '#8a8a98', true); gLine(G, ox, oy, 20 + Math.cos(a - .6283) * 15, 20 + Math.sin(a - .6283) * 15, '#8a8a98', true);
+      });
+      polyG(G, mid, DK);
+      for (let k = 0; k < 5; k++) { const a = -1.5708 + .6283 + k * 1.2566; polyG(G, pent(20 + Math.cos(a) * 16, 20 + Math.sin(a) * 16, 4.8, a + 3.1416), clip); }
+    },
     brk: [{ t: 'ring' }, { t: 'shards', c: ['#f4f6fa', '#2a2a30'], n: 18, sfx: '', w: '砰！' }],
     art: { splat: ['#f4f6fa', '#2a2a30'], extra: 'bits', bits: ['#2a2a30'], medium: '皮革、空气、九十分钟', titles: ['补时阶段', '漏气的世界杯', '最后一脚'], quotes: ['这一脚，用了十几吨。', '裁判没有吹哨。', '它终于不用再被踢了。'] } },
   { k: 'flowerpot', name: '花盆', need: 6, price: 30, hard: true, breakP: 4.2, crack: 'rgba(80,30,10,.9)', spread: .7, pcol: '#5a3a1a', word: '花还活着！', w: 34, h: 46,
-    draw(G) { G.rect(16, 8, 2, 16, '#3aa050'); G.ell(12, 16, 4, 1.6, '#3aa050'); [[17, 4], [13, 6], [21, 6], [15, 2], [19, 2]].forEach(([x, y]) => G.ell(x, y, 2.4, 2.4, '#ff8ab0')); G.ell(17, 4, 1.6, 1.6, '#ffe14a'); G.rect(4, 22, 26, 4, '#d06030'); for (let y = 26; y < 44; y++) { const hw = lerp(12, 9, (y - 26) / 18); G.rect(R(17 - hw), y, R(hw * 2), 1, '#c05028'); } G.rect(5, 22, 24, 1, '#5a3a1a'); },
+    draw(G) {   // a clay pot with a flared rim, a stem with two leaves and a five-petalled flower
+      tube(G, [[17, 24], [16, 15], [17, 8]], .8, .7, '#3aa050');
+      tube(G, [[16.5, 19], [12, 17], [8, 13]], 1.7, .4, '#4ab860'); tube(G, [[16.5, 16], [21, 14], [25, 10]], 1.5, .4, '#3aa050');
+      [0, 1, 2, 3, 4].forEach(k => { const a = -1.57 + k * 1.2566; G.ell(17 + Math.cos(a) * 3.6, 6.5 + Math.sin(a) * 3.6, 2.5, 2.5, '#ff8ab0'); }); G.ell(17, 6.5, 1.9, 1.9, '#ffd040');
+      polyG(G, [[7, 27], [27, 27], [24, 44], [10, 44]], '#c05a2c'); G.rect(5, 23, 24, 4, '#d0683a'); G.rect(5, 23, 24, 1, '#e88a5a'); G.ell(17, 23, 9.5, 1.4, '#4a3020');
+      cyl(G, 5, 29);
+    },
     brk: [{ t: 'shards', c: ['#c05028', '#d06030'], n: 20, sfx: 'crunch', w: '哐！' }, { t: 'juice', c: ['#5a3a1a', '#7a5030'], n: 12, sfx: '' }, { t: 'fling', s: ['flower'], n: 1, sfx: '' }],
     art: { splat: ['#5a3a1a', '#c05028'], extra: 'bits', bits: ['#ff8ab0', '#3aa050'], medium: '陶土、泥巴、一朵花', titles: ['花还活着', '泥土的形状', '春天搬家了'], quotes: ['花被救走了，盆没有。', '泥巴是最好的颜料。', '浇水的人会难过。'] } },
   // ---- 10 t
@@ -1979,8 +2050,12 @@ MORE.push(
     pre: [[{ t: 'word', w: '咕咚' }], [{ t: 'steam' }], [{ t: 'juice', c: ['#8ad8f8'], n: 6, sfx: '' }]],
     brk: [{ t: 'jet', c: ['#8ad8f8', '#ffffff', '#5ab0e0'], dur: 2.2, up: true, lens: 8, w: '哗——！' }, { t: 'shards', c: ['#e03a30', '#c02820'], n: 18, sfx: 'clang' }],
     art: { splat: ['#8ad8f8', '#5ab0e0'], extra: 'line', lineC: ['#8ad8f8', '#5ab0e0'], medium: '铸铁、自来水', titles: ['水漫金山', '消防演习', '夏日喷泉'], quotes: ['整条街都凉快了。', '狗狗们很失望。', '水费由液压机承担。'] } },
-  { k: 'goldbar', name: '金条', need: 16, price: 180, hard: true, breakP: 14.5, crack: 'rgba(120,80,0,.9)', spread: .7, word: '发财了！', w: 44, h: 24,
-    draw(G) { for (let y = 4; y < 21; y++) { const hw = lerp(14, 20, (y - 4) / 16); G.rect(R(22 - hw), y, R(hw * 2), 1, '#f2c230'); } G.rect(9, 4, 26, 2, '#fff0a0'); G.rect(16, 10, 12, 1, '#c89a18'); G.rect(16, 14, 12, 1, '#c89a18'); G.set(12, 6, '#ffffff'); },
+  { k: 'goldbar', name: '金条', need: 16, price: 180, hard: true, breakP: 14.5, crack: 'rgba(120,80,0,.9)', spread: .7, word: '发财了！', w: 44, h: 26,
+    draw(G) {   // an ingot: bevelled top catching the light, a stamped mark, a glint
+      polyG(G, [[2, 23], [42, 23], [37, 10], [7, 10]], '#f2c230'); polyG(G, [[7, 10], [37, 10], [33, 5], [11, 5]], '#ffe680'); polyG(G, [[37, 10], [42, 23], [43, 21], [39, 9]], '#c89418');
+      G.rect(13, 15, 18, 1, '#c89418'); G.rect(13, 18, 18, 1, '#c89418'); G.rect(13, 16, 18, 1, '#ffe680');
+      gLine(G, 9, 21, 13, 11, '#fff6c0'); gLine(G, 12, 21, 15, 12, '#ffe680');
+    },
     pre: [[{ t: 'flash', w: '闪！' }], [], [{ t: 'sparks', n: 8 }]],
     brk: [{ t: 'coins', n: 14, bonus: 300, w: '金光闪闪！' }, { t: 'sparks', n: 20, sfx: '' }],
     art: { splat: ['#f2c230', '#fff0a0'], extra: 'coins', medium: '纯金（999）', titles: ['金色的饼', '财富自由', '金箔'], quotes: ['它变薄了，但没有变便宜。', '可以拿去贴金了。', '银行家又沉默了。'] } },
@@ -2071,21 +2146,39 @@ MORE.push(
     draw(G) { G.rect(3, 6, 24, 12, '#ff8ab0'); G.rect(27, 5, 8, 14, '#3a6ad8'); G.rect(27, 9, 8, 2, '#ffffff'); G.rect(3, 6, 24, 2, '#ffb0cc'); },
     fx: [[.4, { t: 'confetti', c: ['#ff8ab0', '#ffb0cc'], n: 16, w: '擦擦擦' }]],
     art: { splat: ['#ff8ab0', '#3a6ad8'], extra: 'bits', bits: ['#ff8ab0'], medium: '橡胶、错别字', titles: ['擦掉了', '改正', '错误的终点'], quotes: ['它擦掉了很多错误，这次擦掉了自己。', '作业本松了一口气。', '橡皮屑也是艺术。'] } },
-  { k: 'bubble', name: '气泡膜', need: 4, price: 13, type: 'plastic', spread: 1, word: '解压！', w: 44, h: 20,
-    draw(G) { G.rect(2, 6, 40, 10, '#d8f0ff'); for (let y = 8; y < 15; y += 4) for (let x = 5; x < 40; x += 4) { G.ell(x + (y % 8 ? 2 : 0), y, 1.6, 1.6, '#f4fbff'); G.set(x + (y % 8 ? 2 : 0) - 1, y - 1, '#ffffff'); } },
+  { k: 'bubble', name: '气泡膜', need: 4, price: 13, type: 'plastic', spread: 1, word: '解压！', w: 44, h: 22,
+    draw(G) {   // a sheet of plastic covered in round air bubbles
+      G.rect(2, 9, 40, 11, '#c8e6f4');
+      for (let row = 0; row < 2; row++) for (let x = 5 + row * 3; x < 41; x += 6) {
+        const y = 8 + row * 7; G.ell(x, y, 3.2, 3.2, '#e4f6ff'); G.ell(x + .6, y + .8, 1.8, 1.8, '#f4fcff'); G.set(R(x) - 1, R(y) - 2, '#ffffff'); G.set(R(x) + 2, R(y) + 2, '#a8cfe0');
+      }
+    },
     fx: [[.15, { t: 'confetti', c: ['#ffffff', '#d8f0ff'], n: 6, w: '啪！' }], [.35, { t: 'confetti', c: ['#ffffff'], n: 8, w: '啪啪！' }], [.6, { t: 'confetti', c: ['#ffffff'], n: 10, w: '啪啪啪！' }], [.85, { t: 'confetti', c: ['#ffffff'], n: 12, w: '啪啪啪啪！' }]],
     art: { splat: ['#ffffff', '#d8f0ff'], extra: 'fluff', medium: '塑料、空气、快乐', titles: ['全部捏完', '解压艺术', '啪'], quotes: ['每一个泡都被认真对待了。', '评论家偷偷捏了一个。', '这是最治愈的一幅。'] } },
   // ---- 6 t
   { k: 'honey', name: '蜂蜜罐', need: 6, price: 34, hard: true, breakP: 4.2, crack: 'rgba(255,255,255,.95)', spread: .8, pcol: '#e8a020', word: '黏糊糊！', w: 34, h: 42,
-    draw(G) { G.rect(4, 11, 26, 29, '#f0b030'); G.rect(6, 4, 22, 7, '#c84040'); for (let x = 6; x < 28; x += 4) G.rect(x, 4, 2, 7, '#ffffff'); G.rect(8, 20, 18, 10, '#fff6d0'); G.ell(17, 25, 4, 3, '#f0b030'); G.rect(6, 13, 2, 22, '#ffd870'); },
+    draw(G) {   // a squat glass jar of honey, a checked cloth tied over the lid, a label with a bee
+      const AM = '#f2a818';
+      LE(G, 17, 27, 14, 13.5, AM); G.rect(9, 11, 16, 5, '#d88a10');
+      polyG(G, [[8, 12], [26, 12], [28, 7], [24, 3], [10, 3], [6, 7]], (x, y) => ((x >> 1) + (y >> 1)) & 1 ? '#e04040' : '#fff3e0');
+      G.rect(8, 11, 18, 2, '#8a5a20');
+      tube(G, [[6, 22], [5, 28], [7, 34]], .9, .9, '#ffe08a');
+      G.rect(9, 22, 16, 11, '#fff3d0'); G.rect(9, 22, 16, 1, '#e0c890');
+      G.ell(17, 27.5, 3.6, 2.5, '#ffd040'); G.rect(16, 25, 1, 5, '#2a2a30'); G.rect(18, 25, 1, 5, '#2a2a30'); G.ell(15.5, 24.5, 1.6, 1.1, '#ffffff'); G.ell(19, 24.5, 1.6, 1.1, '#ffffff');
+    },
     brk: [{ t: 'shards', c: ['#ffffff', '#ffd870'], n: 18, w: '哐！' }, { t: 'juice', c: ['#f0b030', '#e8a020'], n: 18, lens: 6, sfx: 'squish' }],
     art: { splat: ['#f0b030', '#e8a020'], big: true, medium: '玻璃、蜂蜜、熊的口粮', titles: ['金色的黏稠', '熊的眼泪', '甜到化不开'], quotes: ['画干之前，千万别碰。', '蜜蜂们为此工作了一整年。', '评论家的手指黏住了。'] } },
   { k: 'keyboard', name: '键盘', need: 6, price: 36, hard: true, breakP: 4.5, spread: .6, word: '噼里啪啦！', w: 52, h: 20,
     draw(G) { G.rect(2, 6, 48, 12, '#4a4e5a'); for (let r = 0; r < 3; r++) for (let c = 0; c < 11; c++) G.rect(4 + c * 4 + (r === 1 ? 1 : 0), 8 + r * 3, 3, 2, '#e6ecf5'); G.rect(14, 17, 22, 1, '#e6ecf5'); },
     brk: [{ t: 'fling', s: ['kbkey'], n: 12, w: '噼里啪啦！' }, { t: 'shards', c: ['#4a4e5a', '#e6ecf5'], n: 14, sfx: 'crunch' }],
     art: { splat: ['#4a4e5a', '#e6ecf5'], extra: 'bits', bits: ['#e6ecf5'], medium: '塑料、一百零四个键', titles: ['Ctrl+Z', '无法输入', '键盘侠的终点'], quotes: ['撤销键也救不了它。', '空格键最后一个离开。', '它打过很多字，最后一个字是“扁”。'] } },
-  { k: 'thermos', name: '保温杯', need: 6, price: 32, hard: true, breakP: 5, crack: 'rgba(60,60,80,.9)', spread: .6, pcol: '#d8f4ff', word: '烫烫烫！', w: 22, h: 48,
-    draw(G) { G.rect(5, 2, 12, 7, '#e04848'); G.rect(4, 9, 14, 37, '#a5b0c6'); G.rect(4, 18, 14, 3, '#e04848'); cyl(G, 4, 18); },
+  { k: 'thermos', name: '保温杯', need: 6, price: 32, hard: true, breakP: 5, crack: 'rgba(60,60,80,.9)', spread: .6, pcol: '#d8f4ff', word: '烫烫烫！', w: 24, h: 48,
+    draw(G) {   // a steel flask with a cup for a lid and a carrying strap
+      tube(G, [[17, 18], [22, 22], [22, 30], [17, 34]], .9, .9, '#3a3550');
+      G.rect(4, 11, 14, 33, '#a5b0c6'); G.ell(11, 44, 7, 2.2, '#a5b0c6'); G.rect(4, 26, 14, 3, '#d84848'); G.rect(4, 37, 14, 1, '#7a8296');
+      G.rect(6, 8, 10, 3, '#7a8296'); G.rect(5, 2, 12, 6, '#d84848'); G.ell(11, 2, 6, 1.6, '#e86060');
+      G.ell(11, 19, 1.8, 2.4, '#e6ecf5'); cyl(G, 4, 18);
+    },
     brk: [{ t: 'jet', c: ['#ffffff', '#d8f4ff', '#f0e0a0'], dur: 1.2, up: true, w: '烫烫烫！' }, { t: 'steam', sfx: '' }, { t: 'shards', c: ['#a5b0c6', '#e04848'], n: 14, sfx: 'clang' }],
     art: { splat: ['#a5b0c6', '#f0e0a0'], extra: 'line', lineC: ['#f0e0a0'], medium: '不锈钢、枸杞', titles: ['中年的保温杯', '枸杞泡水', '热水的自由'], quotes: ['里面泡着枸杞。', '保温了二十四小时，终于凉了。', '养生失败。'] } },
   { k: 'lamp', name: '台灯', need: 6, price: 36, hard: true, breakP: 4.8, glow: '#fff080', crack: 'rgba(255,255,255,.9)', spread: .6, word: '熄灯！', w: 36, h: 46,
@@ -2102,8 +2195,12 @@ MORE.push(
     fx: [[.4, { t: 'confetti', c: ['#3a9a4a', '#8ac870'], n: 16, w: '咔！' }], [.75, { t: 'juice', c: ['#3a9a4a', '#8ac870'], n: 10 }]],
     art: { splat: ['#3a9a4a', '#8ac870'], extra: 'seeds', seedC: '#2a7a3a', medium: '西兰花、维生素', titles: ['小树林', '妈妈让你吃的', '绿色的倔强'], quotes: ['小朋友们松了一口气。', '它像一棵被压扁的树。', '营养还在，样子没了。'] } },
   // ---- 10 t
-  { k: 'skate', name: '滑板', need: 10, price: 58, hard: true, breakP: 8, crack: 'rgba(60,10,10,.9)', spread: .6, word: '翻板失败！', w: 54, h: 18,
-    draw(G) { G.rect(6, 4, 42, 4, '#e04848'); G.ell(6, 6, 4, 2.2, '#e04848'); G.ell(48, 6, 4, 2.2, '#e04848'); G.rect(6, 3, 42, 1, '#2a2a30'); G.rect(12, 8, 6, 2, '#a5b0c6'); G.rect(36, 8, 6, 2, '#a5b0c6'); [13, 17, 37, 41].forEach(x => G.ell(x, 12, 2.4, 2.4, '#ffd040')); },
+  { k: 'skate', name: '滑板', need: 10, price: 58, hard: true, breakP: 8, crack: 'rgba(60,10,10,.9)', spread: .6, word: '翻板失败！', w: 54, h: 20,
+    draw(G) {   // a deck curved up at both ends, black grip on top, trucks and round wheels
+      tube(G, [[2, 4], [8, 8], [46, 8], [52, 4]], 1.2, 1.2, '#2a2a30'); tube(G, [[2, 5.5], [8, 9.5], [46, 9.5], [52, 5.5]], 1.3, 1.3, '#e04040');
+      tube(G, [[12, 10], [24, 10], [32, 10]], .5, .4, '#ffd040');
+      [[14, 18], [36, 40]].forEach(([a, b]) => { polyG(G, [[a - 1, 11], [b + 1, 11], [b - 1, 14], [a + 1, 14]], '#a5b0c6'); const x = (a + b) / 2; G.ell(x, 15.5, 3.3, 3.3, '#ffd040'); G.ell(x, 15.5, 1.3, 1.3, '#b88a20'); });
+    },
     brk: [{ t: 'fling', s: ['wheel'], n: 4, w: '咔嚓！' }, { t: 'shards', c: ['#e04848', '#2a2a30'], n: 16, sfx: 'crunch' }],
     art: { splat: ['#e04848', '#ffd040'], extra: 'bits', bits: ['#ffd040', '#a5b0c6'], medium: '枫木、轴承、膝盖的伤', titles: ['豚跳失败', '最后一个动作', '街头'], quotes: ['这个动作叫“液压机翻”。', '轮子跑得比板快。', '护膝没用上。'] } },
   { k: 'fan', name: '电风扇', need: 10, price: 60, hard: true, breakP: 7.5, crack: 'rgba(40,40,60,.9)', spread: .6, word: '风停了！', w: 40, h: 52,
@@ -2152,7 +2249,17 @@ MORE.push(
     art: { splat: ['#e04040', '#2a2a30'], extra: 'bits', bits: ['#a5b0c6', '#2a2a30'], medium: '钢架、两个轮子、铃铛', titles: ['下坡', '链条掉了', '骑车上学'], quotes: ['它载过很多人回家。', '铃铛最后响了一声。', '今天要走路上学了。'] } },
   // ---- 25 t
   { k: 'motorbike', name: '摩托车', need: 25, price: 440, hard: true, breakP: 23, spread: .6, word: '熄火了！', w: 58, h: 38,
-    draw(G) { wheelG(G, 12, 27, 10); wheelG(G, 46, 27, 10); G.rect(18, 16, 26, 9, '#e04040'); G.ell(30, 15, 9, 5, '#e04040'); G.rect(20, 11, 12, 4, '#2a2a30'); G.rect(4, 20, 14, 3, '#a5b0c6'); gLine(G, 44, 18, 48, 8, '#828ea8'); G.rect(44, 6, 8, 2, '#2a2a30'); G.ell(51, 14, 2.5, 2.5, '#ffe14a'); G.ell(30, 13, 3, 1.5, '#ff8a8a'); },
+    draw(G) {   // two spoked wheels, a teardrop tank, a seat, an engine with fins, a chrome exhaust, forks and a headlight
+      wheelG(G, 11, 27, 9.5); wheelG(G, 47, 27, 9.5);
+      tube(G, [[11, 27], [24, 27]], 1, 1, '#3a3550'); tube(G, [[47, 27], [41, 11]], 1.2, 1.2, '#a5b0c6');
+      tube(G, [[40, 21], [46, 16.5], [54, 20]], 1, 1, '#e04040'); tube(G, [[3, 21], [9, 16.5], [17, 19]], 1, 1, '#c83838');
+      gLine(G, 24, 22, 41, 15, '#3a3550'); gLine(G, 24, 23, 41, 16, '#3a3550');
+      G.rect(22, 22, 13, 9, '#7a8296'); for (let y = 23; y < 31; y += 2) G.rect(22, y, 13, 1, '#5a6276'); G.ell(29, 27, 2.6, 2.6, '#cdd6e4');
+      tube(G, [[24, 31], [16, 32], [5, 30]], 1.4, 1.2, '#cdd6e4'); G.rect(3, 29, 2, 2, '#2a2a30');
+      polyG(G, [[23, 17], [27, 12], [36, 11], [41, 14], [39, 20], [26, 21]], '#e04040'); tube(G, [[27, 14], [33, 13], [37, 15]], .8, .5, '#ff9a9a');
+      tube(G, [[9, 18], [17, 18], [24, 16.5]], 2.2, 2, '#2a2a30'); G.rect(5, 17, 3, 2, '#ff5050');
+      tube(G, [[37, 8], [42, 8], [45, 5]], .9, .9, '#2a2a30'); G.ell(45, 13, 2.8, 2.8, '#cdd6e4'); G.ell(45.5, 13, 1.8, 1.8, '#ffe14a');
+    },
     pre: [[{ t: 'steam', w: '轰轰' }], [{ t: 'sparks', n: 8 }], [{ t: 'steam' }]],
     brk: [{ t: 'ring' }, { t: 'fling', s: ['wheel'], n: 2, sfx: '' }, { t: 'sparks', n: 20, sfx: '' }, { t: 'shards', c: ['#e04040', '#2a2a30', '#a5b0c6'], n: 26, sfx: 'boom', w: '轰！' }],
     art: { splat: ['#e04040', '#2a2a30'], extra: 'bits', bits: ['#a5b0c6', '#2a2a30'], medium: '钢、汽油、风', titles: ['熄火', '最后一程', '公路之王'], quotes: ['它跑得很快，但没跑过液压机。', '头盔还在。', '风停了。'] } },
@@ -2172,8 +2279,19 @@ MORE.push(
     pre: [[{ t: 'word', w: '嘀嘀！' }], [{ t: 'steam' }], [{ t: 'sparks', n: 10 }]],
     brk: [{ t: 'ring' }, { t: 'fling', s: ['wheel'], n: 4, sfx: '' }, { t: 'shards', c: ['#ffd040', '#c8ecff', '#2a2a30'], n: 30, sfx: 'boom', w: '终点站到了！' }],
     art: { splat: ['#ffd040', '#c8ecff'], extra: 'bits', bits: ['#2a2a30', '#e04040'], medium: '钢、玻璃、早高峰', titles: ['终点站', '早高峰', '下一站：画廊'], quotes: ['所有乘客已安全下车。', '它准点了一辈子。', '请从后门下车。'] } },
-  { k: 'plane', name: '飞机', need: 40, price: 880, hard: true, breakP: 37, spread: .6, word: '紧急降落！', w: 58, h: 30,
-    draw(G) { G.tri(4, 4, 12, 4, 14, 14, '#e04040'); LE(G, 30, 16, 26, 6, '#f4f6fa'); G.tri(22, 16, 38, 16, 26, 28, '#c8ccd8'); G.tri(24, 14, 34, 14, 28, 6, '#c8ccd8'); for (let x = 18; x < 46; x += 4) G.rect(x, 14, 2, 2, '#3a6ad8'); G.rect(50, 13, 4, 3, '#3a6ad8'); G.rect(6, 18, 48, 1, '#e04040'); },
+  { k: 'plane', name: '飞机', need: 40, price: 880, hard: true, breakP: 37, spread: .6, word: '紧急降落！', w: 58, h: 32,
+    draw(G) {   // an airliner from the side: tapered tail, swept wing, an engine, a row of windows
+      const W = '#f4f6fa';
+      polyG(G, [[26, 12], [35, 12], [31, 6], [28, 6]], '#c8ccd8');
+      polyG(G, [[5, 13], [2, 2], [8, 2], [16, 12]], '#e04040'); polyG(G, [[3, 14], [0, 12], [8, 12], [12, 15]], '#c83838');
+      tube(G, [[5, 13], [16, 15]], 1.8, 4.6, W); tube(G, [[16, 15], [46, 15.5]], 4.6, 4.6, W); tube(G, [[46, 15.5], [54, 17]], 4.6, 1.5, W);
+      G.map((x, y, c) => y >= 18 && c === W ? '#d0d6e2' : c);
+      for (let x = 16; x < 45; x += 3) G.rect(x, 13, 2, 2, '#3a6ad8');
+      polyG(G, [[47, 13], [52, 15.5], [47, 15.5]], '#2a4a90');
+      for (let x = 8; x < 52; x++) if (G.get(x, 17)) G.set(x, 17, '#e04040');
+      polyG(G, [[22, 18], [37, 18], [28, 29], [21, 29]], '#aeb6c6'); gLine(G, 22, 18, 37, 18, '#8a93a8');
+      tube(G, [[25, 22], [31, 22]], 2.1, 1.8, '#6a7286'); G.rect(31, 21, 1, 3, '#2a2a30');
+    },
     pre: [[{ t: 'steam', w: '请系好安全带' }], [{ t: 'sparks', n: 8 }], [{ t: 'steam' }]],
     brk: [{ t: 'ring' }, { t: 'jet', c: ['#ffb040', '#e6ecf5'], dur: 1.2, sfx: '' }, { t: 'shards', c: ['#f4f6fa', '#e04040', '#3a6ad8'], n: 30, sfx: 'boom', w: '紧急降落！' }],
     art: { splat: ['#f4f6fa', '#3a6ad8'], extra: 'line', lineC: ['#e6ecf5'], medium: '铝合金、航空餐、云', titles: ['紧急降落', '航班取消', '平飞'], quotes: ['这是它飞得最平的一次。', '航空餐还热着。', '请收起小桌板。'] } },
