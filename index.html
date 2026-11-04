@@ -998,14 +998,14 @@ const MS = {
     strain(p) { noise(.03, .012 + Math.min(p, 12) * .002, 2600 + Math.random() * 1800, 0, 'bandpass', 3); if (Math.random() < .3) tone(3000 + Math.random() * 1500, .03, 'sine', .008); },
     crack(st, pm) { ringM(520 * pm, [1, 2.1], .12, .04); noise(.04, .06, 1200, 0, 'bandpass'); },
     give(n, pm) { for (let i = 0; i < 4; i++) noise(.04, .085, 1500 + Math.random() * 2500, i * .03 + Math.random() * .01, 'bandpass', 2); tone(130 * pm, .1, 'sine', .1, 70); tone(700 * pm, .06, 'sine', .045, 420); },
-    brk(pm) { noise(.14, .16, 1400, 0, 'bandpass', .8); tone(110 * pm, .25, 'sine', .14, 50); tone(720 * pm, .12, 'triangle', .05, 400); for (let i = 0; i < 6; i++) noise(.04, .07, 2000 + Math.random() * 2500, .03 + i * .04, 'bandpass', 2); ringM(1100 * pm, [1, 2.7], .25, .02, .05); },
+    brk(pm) { noise(.14, .16, 1400, 0, 'bandpass', .8); tone(110 * pm, .25, 'sine', .1, 50); tone(720 * pm, .12, 'triangle', .05, 400); for (let i = 0; i < 6; i++) noise(.04, .07, 2000 + Math.random() * 2500, .03 + i * .04, 'bandpass', 2); ringM(1100 * pm, [1, 2.7], .25, .02, .05); },
   },
   dense: {   // solid metal and heavy blocks
     contact(pm) { ringM(300 * pm, [1, 2.76, 5.4], .3, .06); noise(.05, .12, 1500, 0, 'bandpass'); tone(90 * pm, .12, 'sine', .1, 60); },
     strain(p, pm) { if (strainGap(.2)) groan(58 * pm, .22, .22, 520); },
     crack(st, pm) { ringM(420 * pm, [1, 2.76, 5.4], .2, .04); },
     give(n, pm) { groan(48 * pm, .35, .3, 420); ringM(240 * pm, [1, 2.76], .35, .045); tone(80 * pm, .15, 'sine', .09, 50); },
-    brk(pm) { ringM(200 * pm, [1, 2.76, 5.4, 8.9], .7, .065); noise(.2, .13, 1200); tone(70 * pm, .35, 'sine', .16, 40); tone(600 * pm, .15, 'triangle', .05, 300); },
+    brk(pm) { ringM(200 * pm, [1, 2.76, 5.4, 8.9], .7, .065); noise(.2, .1, 1200); tone(70 * pm, .35, 'sine', .1, 40); tone(600 * pm, .15, 'triangle', .05, 300); },
   },
   brittle: {   // china, glass, stone
     contact(pm) { ringM(1500 * pm, [1, 1.9, 3.1], .06, .04); noise(.02, .09, 3500, 0, 'bandpass', 1.5); tone(260 * pm, .05, 'sine', .05, 180); },
@@ -1059,15 +1059,18 @@ function matGive(it) {   // a sound every fifth of its height lost
   const n = Math.floor((1 - it.s) * 5.5);
   if (n > (it.giveN || 0) && !it.popped) { it.giveN = n; MS[it.d.mat].give(n, pmOf(it)); }
 }
-// ---- background music: a small jazzy loop for the cat's studio (16 bars, ~38 s), scheduled a moment ahead on its own
-// bus. The bus is quieter than the sound effects and lifts 1 kHz so it still sounds full on a phone speaker; low notes
-// carry a short overtone in the 700-1500 Hz range for the same reason (WORKFLOW 2).
-const MUS = { bus: null, next: 0, step: 0, timer: 0, sp: .15 };   // sp: seconds per step
+// ---- background music: the workshop keeping time, in a good mood. The pump plonks out the bass, the anvil is a little
+// bell on the backbeat, air puffs out of the valve, and a tuned mallet plays a cheeky tune; while the press is working a
+// ratchet joins in. It is on its own bus, quieter than the effects, lifting 1 kHz so it still sounds full on a phone speaker;
+// low notes carry a short overtone in the 700-1500 Hz range for the same reason (WORKFLOW 2).
+const MUS = { bus: null, next: 0, step: 0, timer: 0, sp: .14 };   // sp: seconds per step
 const MIDI = n => 440 * Math.pow(2, (n - 69) / 12);
-const CHORD = { C: [48, 52, 55, 59], Am: [45, 48, 52, 55], Dm: [50, 53, 57, 60], G: [43, 47, 50, 53], F: [41, 45, 48, 52], Em: [40, 43, 47, 50] };
-const SONG = ['C', 'Am', 'Dm', 'G', 'C', 'Am', 'Dm', 'G', 'F', 'Em', 'Dm', 'G', 'F', 'Em', 'Dm', 'G'];
-const RHYTHMS = [[0, 3, 6, 10], [0, 2, 4, 7, 10], [2, 6, 8, 11, 14], [0, 6, 8, 12], [3, 4, 7, 11], [0, 4, 6, 9, 12, 14]];
-const SCALE = [60, 62, 64, 67, 69, 72, 74, 76, 79];
+const SONG = ['C', 'C', 'F', 'C', 'Am', 'F', 'G', 'C', 'F', 'F', 'C', 'Am', 'D7', 'G', 'C', 'G7'];
+const CHORD = { C: [36, 60, 64, 67], F: [41, 60, 65, 69], G: [43, 59, 62, 67], Am: [45, 60, 64, 69], D7: [38, 60, 62, 66], G7: [43, 59, 62, 65] };   // bass note, then the off-beat chord
+const TUNE = [{ 0: 72, 2: 76, 3: 79, 6: 76, 8: 72, 12: 79 }, { 0: 81, 2: 79, 6: 76, 8: 79, 14: 76 }, { 0: 77, 2: 81, 3: 84, 6: 81, 8: 77, 12: 84 }, { 0: 79, 2: 76, 6: 72, 10: 74, 12: 76 },
+  { 0: 76, 2: 81, 3: 84, 6: 81, 8: 76, 12: 79 }, { 0: 81, 2: 77, 6: 72, 8: 74, 10: 77, 14: 81 }, { 0: 79, 3: 83, 6: 86, 8: 83, 11: 79, 14: 74 }, { 0: 84, 4: 79, 8: 72 },
+  { 0: 84, 2: 84, 6: 81, 8: 77, 12: 81 }, { 0: 77, 3: 81, 6: 84, 8: 86, 12: 84 }, { 0: 84, 2: 84, 6: 79, 8: 76, 12: 79 }, { 0: 76, 3: 79, 6: 81, 8: 84, 12: 81 },
+  { 0: 78, 2: 81, 6: 84, 8: 86, 11: 84, 14: 81 }, { 0: 79, 2: 83, 6: 86, 8: 91, 12: 86 }, { 0: 88, 2: 84, 6: 79, 8: 76, 11: 79, 14: 84 }, { 0: 83, 4: 79, 8: 77, 10: 74, 12: 71, 14: 67 }];
 function mnote(f, t, d, type, v, f2) {
   const o = AC.createOscillator(), gn = AC.createGain();
   o.type = type; o.frequency.setValueAtTime(f, t); if (f2) o.frequency.exponentialRampToValueAtTime(f2, t + d);
@@ -1080,26 +1083,37 @@ function mnoise(t, d, v, freq, ft) {
   s.buffer = NB; fl.type = ft; fl.frequency.value = freq; gn.gain.value = 0; gn.gain.setValueAtTime(.0001, t); gn.gain.linearRampToValueAtTime(v, t + .004); gn.gain.exponentialRampToValueAtTime(.0001, t + d);
   s.connect(fl); fl.connect(gn); gn.connect(MUS.bus); s.start(t, Math.random()); s.stop(t + d + .03);
 }
-function musicStep(i, t) {   // one 16th note
-  const s = i % 16, bar = (i >> 4) % 16, pass = i >> 8, ch = CHORD[SONG[bar]], nextCh = CHORD[SONG[(bar + 1) % 16]];
-  const r = rng(bar * 131 + pass * 977 + 7);   // the melody changes a little on every pass of the loop
-  // drums: soft kick (with a mid body), brushed snare, hats
-  if (s === 0 || s === 8 || (s === 11 && bar % 4 === 3)) { mnote(110, t, .16, 'sine', .2, 48); mnote(620, t, .04, 'sine', .06); }
-  if (s === 4 || s === 12) mnoise(t, .09, .1, 1900, 'bandpass');
-  if (s % 2 === 0) mnoise(t, .03, s % 4 === 2 ? .045 : .025, 7000, 'highpass');
-  // walking bass
-  const bass = { 0: ch[0], 6: ch[2] - 12, 8: ch[0], 12: ch[1], 14: nextCh[0] - 1 }[s];
-  if (bass) { const b = bass - 12 < 36 ? bass : bass - 12; mnote(MIDI(b), t, .28, 'triangle', .15); mnote(MIDI(b) * 4, t, .08, 'sine', .055); }
-  // e-piano stabs on the off-beats
-  if (s === 2 || s === 10 || (s === 15 && bar % 2)) ch.forEach((n, k) => mnote(MIDI(n + 12), t, .32, k ? 'sine' : 'triangle', .028));
-  // marimba melody: a rhythm picked per bar, notes near the chord; bars 7 and 15 breathe
-  if (bar % 8 === 7 && s > 4) return;
-  const rh = RHYTHMS[Math.floor(r() * RHYTHMS.length)];
-  if (!rh.includes(s)) return;
-  for (let k = 0; k < s; k++) r();
-  const tones = SCALE.filter(n => ch.some(c => (n - c) % 12 === 0)), pool = r() < .7 && tones.length ? tones : SCALE;
-  const n = pool[Math.floor(r() * pool.length)] + (bar >= 8 && r() < .3 ? 12 : 0);
-  mnote(MIDI(n), t, .34, 'sine', .08); mnote(MIDI(n) * 4, t, .08, 'sine', .03);
+function mpluck(f, t, d, v, cut, type) {   // plucked: a bright attack dying into a dull tail
+  const o = AC.createOscillator(), fl = AC.createBiquadFilter(), gn = AC.createGain();
+  o.type = type || 'sawtooth'; o.frequency.value = f; fl.type = 'lowpass'; fl.Q.value = .8;
+  fl.frequency.setValueAtTime(cut, t); fl.frequency.exponentialRampToValueAtTime(Math.max(f * 1.5, 300), t + d);
+  gn.gain.value = 0; gn.gain.setValueAtTime(.0001, t); gn.gain.linearRampToValueAtTime(v, t + .003); gn.gain.exponentialRampToValueAtTime(.0001, t + d);
+  o.connect(fl); fl.connect(gn); gn.connect(MUS.bus); o.start(t); o.stop(t + d + .03);
+}
+function mmeow(t, v) {   // a synth cat: a buzz through a filter that opens ("mi-") and closes ("-aow"), its pitch sliding up then down
+  const o = AC.createOscillator(), fl = AC.createBiquadFilter(), gn = AC.createGain(), d = .42;
+  o.type = 'sawtooth'; o.frequency.setValueAtTime(520, t); o.frequency.linearRampToValueAtTime(760, t + d * .35); o.frequency.exponentialRampToValueAtTime(430, t + d);
+  fl.type = 'bandpass'; fl.Q.value = 5; fl.frequency.setValueAtTime(900, t); fl.frequency.linearRampToValueAtTime(1700, t + d * .35); fl.frequency.exponentialRampToValueAtTime(700, t + d);
+  gn.gain.value = 0; gn.gain.setValueAtTime(.0001, t); gn.gain.linearRampToValueAtTime(v, t + .05); gn.gain.setValueAtTime(v, t + d * .6); gn.gain.exponentialRampToValueAtTime(.0001, t + d);
+  o.connect(fl); fl.connect(gn); gn.connect(MUS.bus); o.start(t); o.stop(t + d + .03);
+}
+function mmallet(n, t, v) { const f = MIDI(n); mnote(f, t, .26, 'sine', v); mnote(f * 2, t, .12, 'triangle', v * .22); mnote(f * 2.76, t, .05, 'sine', v * .2); }   // a tuned bit of metal
+function musicStep(i, t) {   // one 16th note; the odd ones come late, which is what makes it skip
+  const s = i % 16, bar = (i >> 4) % 16, pass = i >> 8, ch = CHORD[SONG[bar]], T = t + (s & 1 ? MUS.sp * .32 : 0);
+  // a soft thump, and the anvil as a little bell on the backbeat, tick then tock
+  if (s === 0 || s === 8) { mnote(100, T, .13, 'sine', .13, 52); mnote(560, T, .03, 'sine', .035); }
+  if (s === 4 || s === 12) { const f = s === 4 ? 1319 : 1568; mnote(f, T, .1, 'sine', .028); mnote(f * 2.76, T, .04, 'sine', .009); mnoise(T, .02, .018, 4000, 'bandpass'); }
+  if (s === 15 && bar % 4 === 3) mnoise(T, .08, .022, 5000, 'highpass');   // the valve puffs at the end of a phrase
+  // the pump plonks: root, then up to the fifth, then a little hop back
+  const bass = { 0: ch[0], 6: ch[0] + 7, 8: ch[0] + 12, 11: ch[0] + 7, 14: ch[0] + 12 }[s];
+  if (bass) { mpluck(MIDI(bass), T, .17, s ? .07 : .09, 1000); mnote(MIDI(bass), T, .2, 'triangle', s ? .1 : .13); mnote(MIDI(bass) * 4, T, .03, 'sine', .014); }
+  // a light chord on the off-beats
+  if (s % 4 === 2) ch.slice(1).forEach(n => mnote(MIDI(n), T, .09, 'triangle', .013));
+  if (hold && phase === 'press') mnoise(T, .012, s & 1 ? .012 : .022, 5500, 'highpass');   // while the press is working, a ratchet joins in
+  // the tune: on every other pass a third voice joins, an octave down
+  const m = TUNE[bar][s];
+  if (m) { mmallet(m, T, .055); if (pass & 1) mmallet(m - 12, T, .024); }
+  if (bar === 7 && s === 10) mmeow(T, .05);
 }
 function musicStart() {
   if (MUS.bus || !AC || !AC.createBiquadFilter) return;
